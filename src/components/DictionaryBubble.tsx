@@ -53,7 +53,7 @@ export const DictionaryBubble: React.FC<DictionaryBubbleProps> = ({ word, positi
             setSource(null);
 
             let foundLocal = false;
-            
+
             // Additional cleaning for dictionary lookup
             const cleanWord = word
                 .trim()
@@ -98,35 +98,16 @@ export const DictionaryBubble: React.FC<DictionaryBubbleProps> = ({ word, positi
         if (word) fetchDefinition();
     }, [word]);
 
-    // Close on right-click, outside click, or Escape key
+    // Close on Escape key
     useEffect(() => {
-        const handleContextMenu = (e: MouseEvent) => {
-            e.preventDefault();
-            onClose();
-        };
-
-        const handleClickOutside = (e: MouseEvent) => {
-            const target = e.target as HTMLElement;
-            // Don't close if clicking inside the bubble
-            if (!target.closest('.glass')) {
-                onClose();
-            }
-        };
-
         const handleEscape = (e: KeyboardEvent) => {
             if (e.key === 'Escape') {
                 onClose();
             }
         };
 
-        // Add listeners immediately
-        document.addEventListener('mousedown', handleClickOutside);
-        document.addEventListener('contextmenu', handleContextMenu);
         document.addEventListener('keydown', handleEscape);
-
         return () => {
-            document.removeEventListener('contextmenu', handleContextMenu);
-            document.removeEventListener('mousedown', handleClickOutside);
             document.removeEventListener('keydown', handleEscape);
         };
     }, [onClose]);

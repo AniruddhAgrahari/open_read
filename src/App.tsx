@@ -54,8 +54,9 @@ function App() {
     // This catches clicks that might not buble up or are on elements that stop propagation
     const handleMouseDown = (e: MouseEvent) => {
       const target = e.target as HTMLElement;
-      // If we're clicking outside the bubble and PDF container, clear selection
-      if (!target.closest('.glass') && !target.closest('.pdf-viewer-container')) {
+      // If we're clicking outside the bubble, clear selection
+      // This allows clicking on the PDF to dismiss the current bubble
+      if (!target.closest('.glass')) {
         handleGlobalDismiss();
       }
     };
