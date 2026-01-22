@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useTabStore } from './store/useTabStore';
 import { useAiStore } from './store/useAiStore';
 import { PDFViewer } from './components/PDFViewer';
@@ -10,7 +10,6 @@ import {
   Plus,
   X,
   FileText,
-  Book,
   Sparkles,
   Command,
   Edit3,
@@ -32,6 +31,7 @@ function App() {
   const [activeDrawer, setActiveDrawer] = useState<string | null>(null);
   const [selection, setSelection] = useState<{ text: string, position: { x: number, y: number } } | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const lastDismissTime = useRef<number>(0);
 
   // Handle theme toggling
   useEffect(() => {
@@ -41,6 +41,31 @@ function App() {
       document.documentElement.classList.add('light-mode');
     }
   }, [isDarkMode]);
+
+  // Global scroll/click listener to dismiss bubble
+  useEffect(() => {
+    const handleGlobalDismiss = () => {
+      setSelection(null);
+      window.getSelection()?.removeAllRanges();
+      lastDismissTime.current = Date.now();
+    };
+
+    window.addEventListener('scroll', handleGlobalDismiss, { capture: true, passive: true });
+    // This catches clicks that might not buble up or are on elements that stop propagation
+    const handleMouseDown = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      // If we're clicking outside the bubble and PDF container, clear selection
+      if (!target.closest('.glass') && !target.closest('.pdf-viewer-container')) {
+        handleGlobalDismiss();
+      }
+    };
+    window.addEventListener('mousedown', handleMouseDown, { capture: true });
+
+    return () => {
+      window.removeEventListener('scroll', handleGlobalDismiss, { capture: true });
+      window.removeEventListener('mousedown', handleMouseDown, { capture: true });
+    };
+  }, []);
 
   // Clean up invalid blob URLs on mount (happens after page refresh)
   useEffect(() => {
@@ -114,6 +139,9 @@ function App() {
   };
 
   const handleSelection = useCallback((text: string, pos: { x: number, y: number }) => {
+    // Lockout to prevent immediate re-trigger after dismissal
+    if (Date.now() - lastDismissTime.current < 150) return;
+
     if (!isEditMode) {
       setSelection({ text, position: pos });
     }

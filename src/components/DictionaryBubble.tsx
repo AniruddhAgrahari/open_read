@@ -53,13 +53,21 @@ export const DictionaryBubble: React.FC<DictionaryBubbleProps> = ({ word, positi
             setSource(null);
 
             let foundLocal = false;
+            
+            // Additional cleaning for dictionary lookup
+            const cleanWord = word
+                .trim()
+                .replace(/^[^a-zA-Z]+/, '')  // Remove non-letter chars from start
+                .replace(/[^a-zA-Z\s]+$/, '')  // Remove non-letter chars from end (except spaces)
+                .replace(/-\s+/g, '')  // Handle hyphenated words split across lines
+                .trim();
 
             // Try Tauri offline dictionary first (only in desktop app)
-            if (isTauri()) {
+            if (isTauri() && cleanWord.length > 0) {
                 try {
                     const { invoke } = await import('@tauri-apps/api/core');
                     if (typeof invoke === 'function') {
-                        const results: string[] = await invoke('search_dictionary', { word: word.trim() });
+                        const results: string[] = await invoke('search_dictionary', { word: cleanWord });
                         if (results && results.length > 0) {
                             setDefinitions(results);
                             setSource('local');
@@ -72,9 +80,9 @@ export const DictionaryBubble: React.FC<DictionaryBubbleProps> = ({ word, positi
             }
 
             // Fallback to online dictionary API if no local result
-            if (!foundLocal) {
+            if (!foundLocal && cleanWord.length > 0) {
                 try {
-                    const onlineResults = await fetchOnlineDefinition(word);
+                    const onlineResults = await fetchOnlineDefinition(cleanWord);
                     if (onlineResults.length > 0) {
                         setDefinitions(onlineResults);
                         setSource('online');
@@ -111,17 +119,12 @@ export const DictionaryBubble: React.FC<DictionaryBubbleProps> = ({ word, positi
             }
         };
 
-        // Add a small delay before registering click listener to prevent 
-        // the double-click that triggered the bubble from immediately closing it
-        const timeoutId = setTimeout(() => {
-            document.addEventListener('mousedown', handleClickOutside);
-        }, 150);
-
+        // Add listeners immediately
+        document.addEventListener('mousedown', handleClickOutside);
         document.addEventListener('contextmenu', handleContextMenu);
         document.addEventListener('keydown', handleEscape);
 
         return () => {
-            clearTimeout(timeoutId);
             document.removeEventListener('contextmenu', handleContextMenu);
             document.removeEventListener('mousedown', handleClickOutside);
             document.removeEventListener('keydown', handleEscape);
@@ -132,16 +135,16 @@ export const DictionaryBubble: React.FC<DictionaryBubbleProps> = ({ word, positi
 
     return (
         <motion.div
-            initial={{ opacity: 0, scale: 0.9, y: 10 }}
+            initial={{ opacity: 0, scale: 0.9, y: -10 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.9, y: 10 }}
+            exit={{ opacity: 0, scale: 0.9, y: -10 }}
             className="glass"
             onClick={(e) => e.stopPropagation()}
             style={{
                 position: 'fixed',
                 left: position.x,
-                top: position.y - 10,
-                transform: 'translate(-50%, -100%)',
+                top: position.y + 10,
+                transform: 'translate(-50%, 0)',
                 zIndex: 20,
                 width: 280,
                 borderRadius: '12px',
@@ -227,9 +230,9 @@ export const DictionaryBubble: React.FC<DictionaryBubbleProps> = ({ word, positi
             <div
                 style={{
                     position: 'absolute',
-                    bottom: -6,
+                    top: -6,
                     left: '50%',
-                    transform: 'translateX(-50%) rotate(45deg)',
+                    transform: 'translateX(-50%) rotate(225deg)',
                     width: 12,
                     height: 12,
                     background: 'var(--bg-secondary)',
