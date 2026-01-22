@@ -1,6 +1,8 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
+type ViewMode = 'normal' | 'dark' | 'eye-comfort' | 'focus';
+
 interface Tab {
   id: string;
   name: string;
@@ -17,7 +19,7 @@ interface TabState {
   tabs: Tab[];
   activeTabId: string | null;
   isEditMode: boolean;
-  isDarkMode: boolean;
+  viewMode: ViewMode;
   maxActiveTabs: number;
   addTab: (name: string, path: string) => void;
   removeTab: (id: string) => void;
@@ -26,7 +28,7 @@ interface TabState {
   saveEdit: (tabId: string, spanId: string, content: string) => void;
   suspendTab: (id: string) => void;
   toggleEditMode: () => void;
-  toggleDarkMode: () => void;
+  setViewMode: (mode: ViewMode) => void;
   setMaxActiveTabs: (count: number) => void;
 }
 
@@ -36,7 +38,7 @@ export const useTabStore = create<TabState>()(
       tabs: [],
       activeTabId: null,
       isEditMode: false,
-      isDarkMode: true,
+      viewMode: 'dark',
       maxActiveTabs: 3,
       addTab: (name, path) => set((state) => {
         const id = Math.random().toString(36).substr(2, 9);
@@ -111,7 +113,7 @@ export const useTabStore = create<TabState>()(
         tabs: state.tabs.map((t) => (t.id === id ? { ...t, isSuspended: true } : t)),
       })),
       toggleEditMode: () => set((state) => ({ isEditMode: !state.isEditMode })),
-      toggleDarkMode: () => set((state) => ({ isDarkMode: !state.isDarkMode })),
+      setViewMode: (viewMode) => set({ viewMode }),
       setMaxActiveTabs: (maxActiveTabs) => set({ maxActiveTabs }),
     }),
     {

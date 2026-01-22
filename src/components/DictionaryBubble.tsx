@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Book, Sparkles, Copy, MessageSquare } from 'lucide-react';
+import { Book, Copy, X, Sparkles } from 'lucide-react';
 
 interface DictionaryBubbleProps {
     word: string;
@@ -122,12 +122,12 @@ export const DictionaryBubble: React.FC<DictionaryBubbleProps> = ({ word, positi
             className="glass"
             onClick={(e) => e.stopPropagation()}
             style={{
-                position: 'fixed',
+                position: 'absolute',
                 left: position.x,
                 top: position.y + 10,
                 transform: 'translate(-50%, 0)',
                 zIndex: 20,
-                width: 280,
+                width: 240,
                 borderRadius: '12px',
                 padding: '16px',
                 color: 'var(--text-primary)',
@@ -151,60 +151,40 @@ export const DictionaryBubble: React.FC<DictionaryBubbleProps> = ({ word, positi
                         </span>
                     )}
                 </div>
-                <div style={{ display: 'flex', gap: 8 }}>
-                    <Copy size={12} className="icon-btn" onClick={() => navigator.clipboard.writeText(word)} />
+                <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                    <Sparkles
+                        size={12}
+                        className="icon-btn"
+                        onClick={() => onDeepDive(word)}
+                        style={{ color: 'var(--accent-color)' }}
+                    />
+                    <Copy
+                        size={12}
+                        className="icon-btn"
+                        onClick={() => {
+                            navigator.clipboard.writeText(word);
+                        }}
+                    />
+                    <X
+                        size={12}
+                        className="icon-btn"
+                        onClick={onClose}
+                    />
                 </div>
             </div>
 
-            <div style={{ maxHeight: 120, overflowY: 'auto', marginBottom: 16 }}>
+            <div style={{ maxHeight: 100, overflowY: 'auto', marginBottom: 0 }}>
                 {loading ? (
-                    <div style={{ fontSize: 12, opacity: 0.5 }}>Searching dictionary...</div>
+                    <div style={{ fontSize: 11, opacity: 0.5, padding: '4px 0' }}>Searching...</div>
                 ) : definitions.length > 0 ? (
                     definitions.map((def, i) => (
-                        <div key={i} style={{ fontSize: 13, lineHeight: 1.5, marginBottom: 8, paddingLeft: 8, borderLeft: '2px solid var(--glass-border)' }}>
+                        <div key={i} style={{ fontSize: 12, lineHeight: 1.4, marginBottom: 6, paddingLeft: 8, borderLeft: '2px solid var(--accent-color)', opacity: 0.9 }}>
                             {def}
                         </div>
                     ))
                 ) : (
-                    <div style={{ fontSize: 12, opacity: 0.5 }}>No definition found. Try AI Deep Dive.</div>
+                    <div style={{ fontSize: 11, opacity: 0.5, padding: '4px 0' }}>No definition. Try Deep Dive.</div>
                 )}
-            </div>
-
-            <div style={{ display: 'flex', gap: 8 }}>
-                <button
-                    onClick={() => onDeepDive(word)}
-                    style={{
-                        flex: 1,
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        gap: 6,
-                        padding: '8px',
-                        borderRadius: '6px',
-                        background: 'var(--accent-color)',
-                        color: 'white',
-                        border: 'none',
-                        fontSize: 12,
-                        fontWeight: 600,
-                        cursor: 'pointer',
-                    }}
-                >
-                    <Sparkles size={12} />
-                    Deep Dive
-                </button>
-                <button
-                    style={{
-                        padding: '8px 12px',
-                        borderRadius: '6px',
-                        background: 'var(--glass-bg)',
-                        color: 'var(--text-primary)',
-                        border: '1px solid var(--glass-border)',
-                        cursor: 'pointer',
-                    }}
-                    onClick={onClose}
-                >
-                    <MessageSquare size={12} />
-                </button>
             </div>
 
             {/* Arrow */}
@@ -214,8 +194,8 @@ export const DictionaryBubble: React.FC<DictionaryBubbleProps> = ({ word, positi
                     top: -6,
                     left: '50%',
                     transform: 'translateX(-50%) rotate(225deg)',
-                    width: 12,
-                    height: 12,
+                    width: 10,
+                    height: 10,
                     background: 'var(--bg-secondary)',
                     borderRight: '1px solid var(--glass-border)',
                     borderBottom: '1px solid var(--glass-border)',

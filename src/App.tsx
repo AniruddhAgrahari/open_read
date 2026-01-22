@@ -2,9 +2,8 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useTabStore } from './store/useTabStore';
 import { useAiStore } from './store/useAiStore';
 import { PDFViewer } from './components/PDFViewer';
-import { DictionaryBubble } from './components/DictionaryBubble';
 import { ApiKeyModal } from './components/ApiKeyModal';
-import { FloatingToolbar, Drawer } from './components/FloatingToolbar';
+import { FloatingToolbar, PremiumPanel } from './components/FloatingToolbar';
 import { analyzeTextWithGroq } from './services/groqService';
 import {
   Plus,
@@ -18,31 +17,71 @@ import {
   ChevronRight,
   Wifi,
   Leaf,
-  Cpu
+  Cpu,
+  Type,
+  Heading1,
+  Heading2,
+  Heading3,
+  Quote,
+  Tag,
+  Table,
+  List,
+  Grid
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { open } from '@tauri-apps/plugin-dialog';
 import { convertFileSrc } from '@tauri-apps/api/core';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 
 function App() {
-  const { tabs, activeTabId, isEditMode, isDarkMode, addTab, removeTab, setActiveTab, toggleEditMode } = useTabStore();
+  const { tabs, activeTabId, isEditMode, viewMode, addTab, removeTab, setActiveTab, toggleEditMode } = useTabStore();
   const { apiKey, analysis, isLoading, error, setApiKey, setAnalysis, setLoading, setError } = useAiStore();
 
   const [activeDrawer, setActiveDrawer] = useState<string | null>(null);
   const [selection, setSelection] = useState<{ text: string, position: { x: number, y: number } } | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isNavbarCollapsed, setIsNavbarCollapsed] = useState(false);
+  const [isToolbarCollapsed, setIsToolbarCollapsed] = useState(false);
+  const [isFocusMode, setIsFocusMode] = useState(false);
   const lastDismissTime = useRef<number>(0);
 
-  // Handle theme toggling
+  // Handle view mode changes
   useEffect(() => {
-    if (isDarkMode) {
-      document.documentElement.classList.remove('light-mode');
-    } else {
-      document.documentElement.classList.add('light-mode');
-    }
-  }, [isDarkMode]);
+    const root = document.documentElement;
+    root.classList.remove('light-mode', 'eye-comfort-mode', 'focus-mode');
 
-  // Global scroll/click listener to dismiss bubble
+    // Tauri window handle
+    const tauriWindow = (window as any).__TAURI__ ? getCurrentWindow() : null;
+
+    if (viewMode === 'normal') {
+      root.classList.add('light-mode');
+    } else if (viewMode === 'eye-comfort') {
+      root.classList.add('eye-comfort-mode');
+    } else if (viewMode === 'focus') {
+      setIsFocusMode(true);
+      setIsNavbarCollapsed(true);
+      setIsToolbarCollapsed(true);
+
+      // Fullscreen logic
+      if (tauriWindow) {
+        tauriWindow.setFullscreen(true).catch(console.error);
+      } else if (root.requestFullscreen) {
+        root.requestFullscreen().catch(console.error);
+      }
+    }
+
+    if (viewMode !== 'focus') {
+      setIsFocusMode(false);
+      // Exit fullscreen logic
+      if (tauriWindow) {
+        tauriWindow.setFullscreen(false).catch(console.error);
+      } else if (document.fullscreenElement && document.exitFullscreen) {
+        document.exitFullscreen().catch(console.error);
+      }
+    }
+  }, [viewMode]);
+
+  // Global click listener to dismiss bubble
   useEffect(() => {
     const handleGlobalDismiss = () => {
       setSelection(null);
@@ -50,20 +89,18 @@ function App() {
       lastDismissTime.current = Date.now();
     };
 
-    window.addEventListener('scroll', handleGlobalDismiss, { capture: true, passive: true });
     // This catches clicks that might not buble up or are on elements that stop propagation
     const handleMouseDown = (e: MouseEvent) => {
       const target = e.target as HTMLElement;
       // If we're clicking outside the bubble, clear selection
       // This allows clicking on the PDF to dismiss the current bubble
-      if (!target.closest('.glass')) {
+      if (!target.closest('.glass') && !target.closest('.premium-panel')) {
         handleGlobalDismiss();
       }
     };
     window.addEventListener('mousedown', handleMouseDown, { capture: true });
 
     return () => {
-      window.removeEventListener('scroll', handleGlobalDismiss, { capture: true });
       window.removeEventListener('mousedown', handleMouseDown, { capture: true });
     };
   }, []);
@@ -119,6 +156,7 @@ function App() {
     }
   };
 
+
   const handleDeepDive = async (text: string) => {
     if (!apiKey) {
       setError("Please connect your Groq API key in the top right menu.");
@@ -132,12 +170,14 @@ function App() {
     try {
       const result = await analyzeTextWithGroq(text, text, apiKey);
       setAnalysis(result);
+      setActiveDrawer('ai');
     } catch (err: any) {
       setError(err.message);
     } finally {
       setLoading(false);
     }
   };
+
 
   const handleSelection = useCallback((text: string, pos: { x: number, y: number }) => {
     // Lockout to prevent immediate re-trigger after dismissal
@@ -148,99 +188,146 @@ function App() {
     }
   }, [isEditMode]);
 
-  const handleScroll = useCallback(() => {
-    setSelection(prev => {
-      if (prev) {
-        window.getSelection()?.removeAllRanges();
-        return null; // Clear selection
-      }
-      return prev;
-    });
-  }, []);
-
   const activeTab = tabs.find(t => t.id === activeTabId);
+
+  const blockSections = [
+    {
+      title: "Basic blocks",
+      blocks: [
+        { icon: Type, label: "Title", sub: "! Title" },
+        { icon: Heading1, label: "Heading 1", sub: "# Heading 1" },
+        { icon: Heading2, label: "Heading 2", sub: "## Heading 2" },
+        { icon: Heading3, label: "Heading 3", sub: "### Heading 3" },
+        { icon: Quote, label: "Blockquote", sub: "> Quote" },
+        { icon: Tag, label: "Label", sub: "Tag" }
+      ]
+    },
+    {
+      title: "Tables",
+      blocks: [
+        { icon: Table, label: "2x2 table", sub: "/table" },
+        { icon: Grid, label: "3x3 table", sub: "/grid" },
+        { icon: Table, label: "4x4 table", sub: "/table" }
+      ]
+    },
+    {
+      title: "Lists",
+      blocks: [
+        { icon: List, label: "Bullet List", sub: "/list" },
+        { icon: List, label: "Numbered List", sub: "/num" }
+      ]
+    }
+  ];
 
   return (
     <div className="app-container">
-      <div className="title-bar glass" style={{ justifyContent: 'space-between' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)' }}>
-          <Command size={14} />
-          <span>NEURA PDF</span>
-        </div>
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, position: 'relative' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 10, color: 'var(--text-secondary)', marginRight: 10 }}>
-            <Cpu size={12} />
-            <span>Memory Saver: {tabs.filter(t => t.isSuspended).length} suspended</span>
+      <div className={`navbar-container ${isNavbarCollapsed ? 'collapsed' : ''}`}>
+        <div className="title-bar" style={{ justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)' }}>
+            <Command size={14} />
+            <span>NEURA PDF</span>
           </div>
 
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, position: 'relative' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--text-secondary)', marginRight: 10 }}>
+              <Cpu size={14} />
+              <span>Memory Saver: {tabs.filter(t => t.isSuspended).length} suspended</span>
+            </div>
 
+
+            <button
+              onClick={() => setIsSettingsOpen(!isSettingsOpen)}
+              className="icon-btn"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                fontSize: 11,
+                fontWeight: 500,
+                background: 'var(--glass-bg)',
+                padding: '4px 10px',
+                borderRadius: '12px',
+                border: '1px solid var(--glass-border)',
+                color: apiKey ? 'var(--accent-color)' : 'var(--text-secondary)'
+              }}
+            >
+              <Wifi size={12} />
+              <span>{apiKey ? 'AI Connected' : 'Connect AI'}</span>
+            </button>
+
+            <button
+              onClick={() => setIsNavbarCollapsed(true)}
+              className="icon-btn"
+              title="Collapse Navbar"
+              style={{ marginLeft: 8 }}
+            >
+              <ChevronRight size={16} style={{ transform: 'rotate(-90deg)' }} />
+            </button>
+          </div>
+        </div>
+
+        {/* Tab Bar */}
+        <div className="tab-bar">
+          {tabs.map((tab) => (
+            <div
+              key={tab.id}
+              className={`tab ${tab.isActive ? 'active' : ''}`}
+              onClick={() => {
+                setActiveTab(tab.id);
+                setSelection(null);
+              }}
+              style={{ position: 'relative' }}
+            >
+              <FileText size={15} style={{ opacity: tab.isSuspended ? 0.4 : 1, minWidth: 15 }} />
+              <span style={{
+                opacity: tab.isSuspended ? 0.6 : 1,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+                maxWidth: '120px',
+                display: 'inline-block'
+              }}>{tab.name}</span>
+              {tab.isSuspended && (
+                <Leaf size={15} color="#10b981" style={{ marginLeft: 6, minWidth: 15 }} />
+              )}
+              <X
+                size={16}
+                className="tab-close"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  removeTab(tab.id);
+                }}
+              />
+            </div>
+          ))}
           <button
-            onClick={() => setIsSettingsOpen(!isSettingsOpen)}
-            className="icon-btn"
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 6,
-              fontSize: 11,
-              fontWeight: 500,
-              background: 'var(--glass-bg)',
-              padding: '4px 10px',
-              borderRadius: '12px',
-              border: '1px solid var(--glass-border)',
-              color: apiKey ? 'var(--accent-color)' : 'var(--text-secondary)'
-            }}
+            className="tab"
+            style={{ width: 40, padding: 0, justifyContent: 'center' }}
+            onClick={handleOpenFile}
           >
-            <Wifi size={12} />
-            <span>{apiKey ? 'AI Connected' : 'Connect AI'}</span>
+            <Plus size={16} />
           </button>
         </div>
-      </div>
 
-      {/* Tab Bar */}
-      <div className="tab-bar">
-        {tabs.map((tab) => (
-          <div
-            key={tab.id}
-            className={`tab ${tab.isActive ? 'active' : ''}`}
-            onClick={() => {
-              setActiveTab(tab.id);
-              setSelection(null);
-            }}
-            style={{ position: 'relative' }}
-          >
-            <FileText size={14} style={{ opacity: tab.isSuspended ? 0.4 : 1 }} />
-            <span style={{
-              opacity: tab.isSuspended ? 0.6 : 1,
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-              maxWidth: '120px',
-              display: 'inline-block'
-            }}>{tab.name}</span>
-            {tab.isSuspended && (
-              <Leaf size={10} color="#10b981" style={{ marginLeft: -4 }} />
-            )}
-            <X
-              size={14}
-              className="tab-close"
-              onClick={(e) => {
-                e.stopPropagation();
-                removeTab(tab.id);
-              }}
-            />
-          </div>
-        ))}
         <button
-          className="tab"
-          style={{ width: 40, padding: 0, justifyContent: 'center' }}
-          onClick={handleOpenFile}
+          className={`navbar-toggle ${isNavbarCollapsed || isFocusMode ? '' : 'expanded'}`}
+          onClick={() => {
+            if (isFocusMode) {
+              // Exit focus mode when user tries to expand navbar
+              setIsFocusMode(false);
+              setIsNavbarCollapsed(false);
+              setIsToolbarCollapsed(false);
+            } else {
+              setIsNavbarCollapsed(!isNavbarCollapsed);
+            }
+          }}
+          title={isNavbarCollapsed || isFocusMode ? "Expand Navbar" : "Collapse Navbar"}
         >
-          <Plus size={16} />
+          {isNavbarCollapsed || isFocusMode ? <ChevronRight size={14} style={{ transform: 'rotate(90deg)' }} /> : <ChevronRight size={14} style={{ transform: 'rotate(-90deg)' }} />}
         </button>
       </div>
 
-      <div className="main-content">
+      <div className="main-content" style={{ marginTop: isNavbarCollapsed ? 0 : 0 }}>
         {/* PDF Area */}
         <div style={{ flex: 1, position: 'relative', display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'hidden' }}>
           <AnimatePresence mode="wait">
@@ -257,7 +344,9 @@ function App() {
                   tabId={activeTab.id}
                   path={activeTab.path}
                   onSelection={handleSelection}
-                  onScroll={handleScroll}
+                  selection={selection}
+                  onCloseSelection={() => setSelection(null)}
+                  onDeepDive={handleDeepDive}
                 />
               </motion.div>
             ) : (
@@ -282,101 +371,126 @@ function App() {
             )}
           </AnimatePresence>
 
-          {/* Floating Bubble */}
-
-          <AnimatePresence>
-            {!isEditMode && selection && (
-              <DictionaryBubble
-                word={selection.text}
-                position={selection.position}
-                onClose={() => setSelection(null)}
-                onDeepDive={handleDeepDive}
-              />
-            )}
-          </AnimatePresence>
           {/* Floating Toolbar */}
           <FloatingToolbar
             activeDrawer={activeDrawer}
             onDrawerToggle={(id) => setActiveDrawer(activeDrawer === id ? null : id)}
+            isCollapsed={isToolbarCollapsed || isFocusMode}
+            onCollapseToggle={() => {
+              if (isFocusMode) {
+                // Exit focus mode when user tries to expand
+                setIsFocusMode(false);
+                setIsToolbarCollapsed(false);
+                setIsNavbarCollapsed(false);
+              } else {
+                setIsToolbarCollapsed(!isToolbarCollapsed);
+              }
+            }}
+            onFocusModeToggle={(enabled) => {
+              setIsFocusMode(enabled);
+              if (enabled) {
+                setIsNavbarCollapsed(true);
+                setIsToolbarCollapsed(true);
+              } else {
+                setIsNavbarCollapsed(false);
+                setIsToolbarCollapsed(false);
+              }
+            }}
           />
         </div>
 
-        {/* Drawer System */}
-        <Drawer
-          id="right-drawer"
+        {/* Premium Panel System */}
+        <PremiumPanel
+          id="premium-panel"
           isOpen={!!activeDrawer}
           onClose={() => setActiveDrawer(null)}
         >
           {activeDrawer === 'ai' && (
-            <div className="drawer-content">
-              <div className="drawer-title">
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
                 <Sparkles size={18} color="var(--accent-color)" />
-                <span>Deep Analysis</span>
+                <span style={{ fontWeight: 700, fontSize: 14 }}>Deep Analysis</span>
               </div>
 
-              <div style={{ marginBottom: 30 }}>
-                <p style={{ fontWeight: 600, color: 'var(--text-primary)', marginBottom: 12 }}>AI Insights</p>
-                <div style={{
-                  minHeight: 100,
-                  background: 'var(--glass-bg)',
-                  borderRadius: 12,
-                  padding: 16,
-                  border: '1px solid var(--glass-border)',
-                  color: 'var(--text-primary)',
-                  position: 'relative'
-                }}>
-                  {isLoading ? (
-                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, padding: '20px 0' }}>
-                      <Loader2 className="animate-spin" size={20} color="var(--accent-color)" />
-                      <span style={{ fontSize: 12, opacity: 0.6 }}>Consulting Mixtral...</span>
-                    </div>
-                  ) : error ? (
-                    <div style={{ color: '#ef4444', fontSize: 12 }}>{error}</div>
-                  ) : analysis ? (
-                    <div className="analysis-text" style={{ lineHeight: 1.6, fontSize: 13 }}>
-                      {analysis}
-                    </div>
-                  ) : (
-                    <p style={{ opacity: 0.5, fontSize: 12 }}>Select text and click "Deep Dive" to start AI analysis.</p>
-                  )}
-                </div>
+              <div style={{
+                minHeight: 120,
+                background: 'rgba(255, 255, 255, 0.03)',
+                borderRadius: 16,
+                padding: 16,
+                border: '1px solid var(--glass-border)',
+                color: 'var(--text-primary)',
+              }}>
+                {isLoading ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, padding: '30px 0' }}>
+                    <Loader2 className="animate-spin" size={24} color="var(--accent-color)" />
+                    <span style={{ fontSize: 12, opacity: 0.6, fontWeight: 500 }}>Thinking...</span>
+                  </div>
+                ) : error ? (
+                  <div style={{ color: '#ef4444', fontSize: 12, lineHeight: 1.5 }}>{error}</div>
+                ) : analysis ? (
+                  <div className="analysis-text" style={{ lineHeight: 1.6, fontSize: 13 }}>
+                    {analysis}
+                  </div>
+                ) : (
+                  <p style={{ opacity: 0.5, fontSize: 12, textAlign: 'center', padding: '20px 0' }}>
+                    Select text and click "Deep Dive" to start AI analysis.
+                  </p>
+                )}
               </div>
             </div>
           )}
 
-
-
           {activeDrawer === 'edit' && (
-            <div className="drawer-content">
-              <div className="drawer-title">
-                <Edit3 size={18} color="var(--accent-color)" />
-                <span>Editor Mode</span>
-              </div>
-
+            <div>
               <div
                 onClick={toggleEditMode}
-                className="sidebar-item"
                 style={{
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'space-between',
-                  padding: '12px',
-                  borderRadius: 12,
-                  background: isEditMode ? 'var(--tab-active)' : 'var(--glass-bg)',
+                  padding: '12px 16px',
+                  borderRadius: 14,
+                  background: isEditMode ? 'var(--tab-active)' : 'rgba(255, 255, 255, 0.05)',
                   cursor: 'pointer',
                   color: isEditMode ? 'white' : 'var(--text-primary)',
-                  border: '1px solid var(--glass-border)'
+                  border: '1px solid var(--glass-border)',
+                  marginBottom: 20,
+                  transition: 'all 0.2s'
                 }}
               >
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                   {isEditMode ? <Edit3 size={16} /> : <MousePointer2 size={16} />}
-                  <span style={{ fontWeight: 500 }}>{isEditMode ? 'Inline Editor' : 'Reading Mode'}</span>
+                  <span style={{ fontWeight: 600, fontSize: 13 }}>{isEditMode ? 'Inline Editor Active' : 'Enable Editor'}</span>
                 </div>
-                <ChevronRight size={14} style={{ opacity: 0.5 }} />
+                <div style={{
+                  width: 8,
+                  height: 8,
+                  borderRadius: '50%',
+                  background: isEditMode ? '#4ade80' : 'rgba(255,255,255,0.2)'
+                }} />
               </div>
+
+              {blockSections.map((section, idx) => (
+                <div key={idx} style={{ marginBottom: 20 }}>
+                  <div className="panel-section-title">{section.title}</div>
+                  <div className="block-grid">
+                    {section.blocks.map((block, bIdx) => {
+                      const Icon = block.icon;
+                      return (
+                        <div key={bIdx} className="block-item">
+                          <div className="block-icon-wrapper">
+                            <Icon size={20} />
+                          </div>
+                          <span className="block-label">{block.label}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
             </div>
           )}
-        </Drawer>
+        </PremiumPanel>
 
         {/* API Key Modal */}
         <ApiKeyModal

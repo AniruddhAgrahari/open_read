@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { Document, Page, pdfjs } from 'react-pdf';
 import { useTabStore } from '../store/useTabStore';
+import { DictionaryBubble } from './DictionaryBubble';
+import { AnimatePresence } from 'framer-motion';
 import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
 
@@ -11,46 +13,39 @@ interface PDFViewerProps {
     tabId: string;
     path: string;
     onSelection: (text: string, position: { x: number, y: number }) => void;
-    onScroll?: () => void;
+    selection?: { text: string, position: { x: number, y: number } } | null;
+    onCloseSelection?: () => void;
+    onDeepDive?: (text: string) => void;
 }
 
-export const PDFViewer: React.FC<PDFViewerProps> = ({ path, onSelection, onScroll }) => {
+export const PDFViewer: React.FC<PDFViewerProps> = ({ path, onSelection, selection, onCloseSelection, onDeepDive }) => {
     const [numPages, setNumPages] = useState<number>(0);
     const containerRef = useRef<HTMLDivElement>(null);
-    const { isEditMode, isDarkMode } = useTabStore();
-    const [scale] = useState(2.0); // High clarity scale
+    const { isEditMode, viewMode } = useTabStore();
+
+    const isDarkMode = viewMode === 'dark' || viewMode === 'eye-comfort' || viewMode === 'focus';
+
+    // Fixed scale for high quality rendering - PDF will be scaled via CSS
+    const pdfScale = 1.5;
 
     const onDocumentLoadSuccess = ({ numPages }: { numPages: number }) => {
         setNumPages(numPages);
     };
-
-    // Handle scroll to hide bubble
-    useEffect(() => {
-        const container = containerRef.current;
-        if (!container) return;
-
-        const handleScroll = () => {
-            if (onScroll) onScroll();
-        };
-
-        container.addEventListener('scroll', handleScroll, { passive: true });
-        return () => container.removeEventListener('scroll', handleScroll);
-    }, [onScroll]);
 
     // Handle Selection - React-PDF renders text layers that work with standard selection API
     useEffect(() => {
         const handleMouseUp = () => {
             if (isEditMode) return;
 
-            const selection = window.getSelection();
-            if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
+            const sel = window.getSelection();
+            if (!sel || sel.rangeCount === 0 || sel.isCollapsed) {
                 // If it's a simple click (collapsed selection), clear the bubble
-                if (onScroll) onScroll(); // Use onScroll as a proxy for "dismiss bubble"
+                if (onCloseSelection) onCloseSelection();
                 return;
             }
 
-            const text = selection.toString();
-            
+            const text = sel.toString();
+
             // Basic cleaning
             const cleanedText = text
                 .trim()
@@ -59,19 +54,22 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({ path, onSelection, onScrol
                 .trim();
 
             if (cleanedText.length >= 2) {
-                const range = selection.getRangeAt(0);
+                const range = sel.getRangeAt(0);
                 const rect = range.getBoundingClientRect();
-                
-                onSelection(cleanedText, {
-                    x: rect.left + rect.width / 2,
-                    y: rect.bottom // Below the text for visibility
-                });
+                const containerRect = containerRef.current?.getBoundingClientRect();
+
+                if (containerRect) {
+                    onSelection(cleanedText, {
+                        x: rect.left - containerRect.left + rect.width / 2 + (containerRef.current?.scrollLeft || 0),
+                        y: rect.bottom - containerRect.top + (containerRef.current?.scrollTop || 0)
+                    });
+                }
             }
         };
 
         document.addEventListener('mouseup', handleMouseUp);
         return () => document.removeEventListener('mouseup', handleMouseUp);
-    }, [onSelection, isEditMode]);
+    }, [onSelection, isEditMode, onCloseSelection]);
 
     return (
         <div
@@ -85,7 +83,8 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({ path, onSelection, onScrol
                 display: 'flex',
                 flexDirection: 'column',
                 alignItems: 'center',
-                padding: '40px 20px'
+                padding: '20px',
+                position: 'relative' // Critical for absolute bubble positioning
             }}
         >
             <Document
@@ -95,21 +94,22 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({ path, onSelection, onScrol
                 error={<div style={{ color: '#ff4b4b', marginTop: 40, fontSize: '14px' }}>Error loading PDF</div>}
             >
                 {Array.from(new Array(numPages), (_, index) => (
-                    <div 
-                        key={`page_${index + 1}`} 
+                    <div
+                        key={`page_${index + 1}`}
                         className="pdf-page-container"
-                        style={{ 
+                        style={{
                             marginBottom: '24px',
                             background: 'white',
                             lineHeight: 0,
-                            boxShadow: isDarkMode 
-                                ? '0 10px 30px rgba(0,0,0,0.5)' 
+                            maxWidth: '100%',
+                            boxShadow: isDarkMode
+                                ? '0 10px 30px rgba(0,0,0,0.5)'
                                 : '0 4px 20px rgba(0,0,0,0.08)'
                         }}
                     >
-                        <Page 
-                            pageNumber={index + 1} 
-                            scale={scale}
+                        <Page
+                            pageNumber={index + 1}
+                            scale={pdfScale}
                             renderTextLayer={true}
                             renderAnnotationLayer={false}
                             className={isDarkMode ? 'dark-pdf-page' : ''}
@@ -118,14 +118,31 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({ path, onSelection, onScrol
                 ))}
             </Document>
 
+            <AnimatePresence>
+                {selection && onCloseSelection && onDeepDive && (
+                    <DictionaryBubble
+                        word={selection.text}
+                        position={selection.position}
+                        onClose={onCloseSelection}
+                        onDeepDive={onDeepDive}
+                    />
+                )}
+            </AnimatePresence>
+
             <style>{`
                 .pdf-viewer-container {
                     scrollbar-width: thin;
                     scrollbar-color: var(--glass-border) transparent;
                 }
+                .pdf-page-container {
+                    overflow: hidden;
+                }
                 .react-pdf__Page__canvas {
                     ${isDarkMode ? 'filter: invert(1) hue-rotate(180deg) brightness(0.9) contrast(1.1);' : ''}
+                    ${viewMode === 'eye-comfort' ? 'filter: sepia(0.3) brightness(0.95);' : ''}
                     display: block !important;
+                    max-width: 100%;
+                    height: auto !important;
                 }
                 .react-pdf__Page__textContent {
                     opacity: 1;
