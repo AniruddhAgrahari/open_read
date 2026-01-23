@@ -5,15 +5,18 @@ import {
     Heading1,
     Heading2,
     Heading3,
-    Quote,
-    Tag,
     Table,
     List,
     Grid,
     X,
     ChevronRight,
-    MousePointer2
+    MousePointer2,
+    Square,
+    Circle,
+    Shapes,
+    ArrowRight
 } from 'lucide-react';
+import { useTabStore } from '../store/useTabStore';
 
 interface EditorTool {
     id: string;
@@ -36,13 +39,10 @@ const editorTools: EditorTool[] = [
         ]
     },
     {
-        id: 'blocks',
-        icon: Quote,
-        label: 'Content Blocks',
-        subMenu: [
-            { label: 'Blockquote', value: 'quote', icon: Quote },
-            { label: 'Label / Tag', value: 'tag', icon: Tag },
-        ]
+        id: 'shapes',
+        icon: Shapes,
+        label: 'Shapes',
+        // Note: Shapes now use the special pod UI, not a traditional submenu
     },
     {
         id: 'layout',
@@ -55,6 +55,23 @@ const editorTools: EditorTool[] = [
             { label: 'Numbered List', value: 'list-num', icon: List },
         ]
     }
+];
+
+const SHAPE_TOOLS = [
+    { value: 'rect', icon: Square, label: 'Rectangle' },
+    { value: 'circle', icon: Circle, label: 'Circle' },
+    { value: 'oval', icon: Circle, label: 'Oval' }, // Using Circle icon for oval
+    { value: 'arrow', icon: ArrowRight, label: 'Arrow' },
+];
+
+const COLOR_SWATCHES = [
+    { value: '#ef4444', label: 'Red' },
+    { value: '#3b82f6', label: 'Blue' },
+    { value: '#22c55e', label: 'Green' },
+    { value: '#eab308', label: 'Yellow' },
+    { value: '#000000', label: 'Black' },
+    { value: '#ffffff', label: 'White' },
+    { value: '#a855f7', label: 'Purple' },
 ];
 
 interface EditorToolbarProps {
@@ -72,14 +89,23 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
 }) => {
     const [hoveredTool, setHoveredTool] = useState<string | null>(null);
     const [openSubMenu, setOpenSubMenu] = useState<string | null>(null);
+    const { shapeColor, setShapeColor } = useTabStore();
 
     const handleToolClick = (tool: EditorTool) => {
-        if (tool.subMenu) {
+        if (tool.id === 'shapes') {
+            // Toggle shapes pod
+            setOpenSubMenu(openSubMenu === 'shapes' ? null : 'shapes');
+        } else if (tool.subMenu) {
             setOpenSubMenu(openSubMenu === tool.id ? null : tool.id);
         } else {
             onToolSelect(tool.id);
             setOpenSubMenu(null);
         }
+    };
+
+    const handleShapeSelect = (shapeValue: string) => {
+        onToolSelect(shapeValue);
+        // Keep pod open so user can change colors
     };
 
     return (
@@ -92,16 +118,6 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
                     exit={{ opacity: 0, x: -50 }}
                     transition={{ type: 'spring', damping: 25, stiffness: 300 }}
                 >
-                    {/* Header: Close Editor */}
-                    <button
-                        className="editor-toolbar-close"
-                        onClick={onClose}
-                    >
-                        <X size={18} />
-                    </button>
-
-                    <div style={{ height: 1, background: 'rgba(255,255,255,0.1)', width: '60%', marginBottom: 8 }} />
-
                     {/* Cursor / Selection Tool */}
                     <div
                         className="editor-tool-wrapper"
@@ -150,7 +166,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
                                         onClick={() => handleToolClick(tool)}
                                     >
                                         <tool.icon size={18} />
-                                        {tool.subMenu && (
+                                        {(tool.subMenu || tool.id === 'shapes') && (
                                             <ChevronRight
                                                 size={10}
                                                 className="submenu-indicator"
@@ -177,9 +193,93 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
                                         )}
                                     </AnimatePresence>
 
-                                    {/* Sub-Menu Fly-out */}
+                                    {/* Shapes Pod Menu */}
                                     <AnimatePresence>
-                                        {isSubMenuOpen && tool.subMenu && (
+                                        {isSubMenuOpen && tool.id === 'shapes' && (
+                                            <motion.div
+                                                className="editor-shapes-pod"
+                                                initial={{ opacity: 0, x: -10, scale: 0.95 }}
+                                                animate={{ opacity: 1, x: 0, scale: 1 }}
+                                                exit={{ opacity: 0, x: -10, scale: 0.95 }}
+                                                style={{
+                                                    position: 'absolute',
+                                                    left: 70,
+                                                    top: 0,
+                                                    background: 'rgba(30, 30, 35, 0.95)',
+                                                    backdropFilter: 'blur(12px)',
+                                                    border: '1px solid rgba(255,255,255,0.1)',
+                                                    borderRadius: 12,
+                                                    padding: 10,
+                                                    display: 'flex',
+                                                    flexDirection: 'column',
+                                                    gap: 8,
+                                                    boxShadow: '0 8px 32px rgba(0,0,0,0.4)',
+                                                    zIndex: 1000,
+                                                    width: 'fit-content'
+                                                }}
+                                            >
+                                                {/* Row 1: Shape Icons */}
+                                                <div style={{ display: 'flex', gap: 8 }}>
+                                                    {SHAPE_TOOLS.map((shape) => {
+                                                        const ShapeIcon = shape.icon;
+                                                        const isShapeActive = activeTool === shape.value;
+                                                        return (
+                                                            <button
+                                                                key={shape.value}
+                                                                onClick={() => handleShapeSelect(shape.value)}
+                                                                title={shape.label}
+                                                                style={{
+                                                                    width: 40,
+                                                                    height: 40,
+                                                                    background: isShapeActive ? 'rgba(99, 102, 241, 0.2)' : 'rgba(255,255,255,0.05)',
+                                                                    border: isShapeActive ? '1px solid #6366f1' : '1px solid rgba(255,255,255,0.1)',
+                                                                    borderRadius: 8,
+                                                                    display: 'flex',
+                                                                    alignItems: 'center',
+                                                                    justifyContent: 'center',
+                                                                    cursor: 'pointer',
+                                                                    transition: 'all 0.2s',
+                                                                    color: 'white',
+                                                                    boxShadow: isShapeActive ? '0 0 12px rgba(99, 102, 241, 0.3)' : 'none'
+                                                                }}
+                                                            >
+                                                                <ShapeIcon size={18} strokeWidth={2} />
+                                                            </button>
+                                                        );
+                                                    })}
+                                                </div>
+
+                                                {/* Row 2: Color Swatches */}
+                                                <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+                                                    {COLOR_SWATCHES.map((color) => {
+                                                        const isColorActive = shapeColor === color.value;
+                                                        return (
+                                                            <button
+                                                                key={color.value}
+                                                                onClick={() => setShapeColor(color.value)}
+                                                                title={color.label}
+                                                                style={{
+                                                                    width: 20,
+                                                                    height: 20,
+                                                                    background: color.value,
+                                                                    border: color.value === '#ffffff' ? '1px solid rgba(0,0,0,0.2)' : 'none',
+                                                                    borderRadius: '50%',
+                                                                    cursor: 'pointer',
+                                                                    transition: 'all 0.2s',
+                                                                    transform: isColorActive ? 'scale(1.2)' : 'scale(1)',
+                                                                    boxShadow: isColorActive ? `0 0 0 2px rgba(255,255,255,0.5), 0 0 8px ${color.value}` : 'none'
+                                                                }}
+                                                            />
+                                                        );
+                                                    })}
+                                                </div>
+                                            </motion.div>
+                                        )}
+                                    </AnimatePresence>
+
+                                    {/* Traditional Sub-Menu Fly-out for non-shapes tools */}
+                                    <AnimatePresence>
+                                        {isSubMenuOpen && tool.subMenu && tool.id !== 'shapes' && (
                                             <motion.div
                                                 className="editor-submenu"
                                                 initial={{ opacity: 0, x: -10, scale: 0.9 }}
@@ -212,13 +312,17 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
                         })}
                     </div>
 
-                    {/* Status Indicator */}
-                    <div className="editor-toolbar-status">
-                        <div className="status-dot" />
-                    </div>
+                    {/* Close Button at Bottom */}
+                    <div style={{ height: 1, background: 'rgba(255,255,255,0.1)', width: '60%', marginTop: 12, marginBottom: 8 }} />
+                    <button
+                        className="editor-toolbar-close"
+                        onClick={onClose}
+                        style={{ marginTop: 'auto' }}
+                    >
+                        <X size={18} />
+                    </button>
                 </motion.div>
             )}
         </AnimatePresence>
     );
 };
-

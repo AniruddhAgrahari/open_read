@@ -17,7 +17,9 @@ import {
   ChevronRight,
   Wifi,
   Leaf,
-  Cpu
+  Cpu,
+  Undo2,
+  Redo2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { open } from '@tauri-apps/plugin-dialog';
@@ -26,7 +28,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import ReactMarkdown from 'react-markdown';
 
 function App() {
-  const { tabs, activeTabId, isEditMode, viewMode, addTab, removeTab, setActiveTab, toggleEditMode } = useTabStore();
+  const { tabs, activeTabId, isEditMode, viewMode, addTab, removeTab, setActiveTab, toggleEditMode, setViewMode, undo, redo } = useTabStore();
   const { apiKey, analysis, isLoading, error, setApiKey, setAnalysis, setLoading, setError } = useAiStore();
 
   const [activeDrawer, setActiveDrawer] = useState<string | null>(null);
@@ -76,6 +78,21 @@ function App() {
       }
     }
   }, [viewMode]);
+
+  // Escape key listener to exit focus mode
+  useEffect(() => {
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && viewMode === 'focus') {
+        setViewMode('dark'); // Return to dark mode
+        setIsFocusMode(false);
+        setIsNavbarCollapsed(false);
+        setIsToolbarCollapsed(false);
+      }
+    };
+
+    window.addEventListener('keydown', handleEscape);
+    return () => window.removeEventListener('keydown', handleEscape);
+  }, [viewMode, setViewMode]);
 
   // Global click listener to dismiss bubble
   useEffect(() => {
@@ -282,6 +299,7 @@ function App() {
           onClick={() => {
             if (isFocusMode) {
               // Exit focus mode when user tries to expand navbar
+              setViewMode('dark'); // Update view mode state
               setIsFocusMode(false);
               setIsNavbarCollapsed(false);
               setIsToolbarCollapsed(false);
@@ -306,7 +324,7 @@ function App() {
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -10 }}
                 transition={{ duration: 0.2 }}
-                style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}
+                style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, position: 'relative' }}
               >
                 <PDFViewer
                   tabId={activeTab.id}
@@ -323,6 +341,63 @@ function App() {
                   jumpToPage={jumpToPage}
                   activeTool={activeEditorTool}
                 />
+
+                {/* Undo/Redo Buttons - Inside PDF Viewing Area */}
+                {isEditMode && activeTab && activeTab.history && (
+                  <div style={{
+                    position: 'absolute',
+                    top: 20,
+                    left: 20,
+                    display: 'flex',
+                    gap: 8,
+                    zIndex: 900
+                  }}>
+                    <button
+                      onClick={() => undo(activeTab.id)}
+                      disabled={!activeTab.history || (activeTab.historyIndex ?? 0) <= 0}
+                      title="Undo (Ctrl+Z)"
+                      style={{
+                        background: 'var(--glass-bg)',
+                        backdropFilter: 'blur(20px)',
+                        border: '1px solid var(--glass-border)',
+                        borderRadius: 12,
+                        padding: 12,
+                        color: 'var(--text-primary)',
+                        cursor: (activeTab.historyIndex ?? 0) > 0 ? 'pointer' : 'not-allowed',
+                        opacity: (activeTab.historyIndex ?? 0) > 0 ? 1 : 0.5,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        transition: 'all 0.2s',
+                        boxShadow: '0 8px 32px rgba(0,0,0,0.2)'
+                      }}
+                    >
+                      <Undo2 size={18} />
+                    </button>
+                    <button
+                      onClick={() => redo(activeTab.id)}
+                      disabled={!activeTab.history || (activeTab.historyIndex ?? 0) >= (activeTab.history?.length ?? 1) - 1}
+                      title="Redo (Ctrl+Y)"
+                      style={{
+                        background: 'var(--glass-bg)',
+                        backdropFilter: 'blur(20px)',
+                        border: '1px solid var(--glass-border)',
+                        borderRadius: 12,
+                        padding: 12,
+                        color: 'var(--text-primary)',
+                        cursor: (activeTab.historyIndex ?? 0) < (activeTab.history?.length ?? 1) - 1 ? 'pointer' : 'not-allowed',
+                        opacity: (activeTab.historyIndex ?? 0) < (activeTab.history?.length ?? 1) - 1 ? 1 : 0.5,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        transition: 'all 0.2s',
+                        boxShadow: '0 8px 32px rgba(0,0,0,0.2)'
+                      }}
+                    >
+                      <Redo2 size={18} />
+                    </button>
+                  </div>
+                )}
               </motion.div>
             ) : (
               <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-secondary)', flexDirection: 'column', gap: 20 }}>
@@ -354,6 +429,7 @@ function App() {
             onCollapseToggle={() => {
               if (isFocusMode) {
                 // Exit focus mode when user tries to expand
+                setViewMode('dark'); // Update view mode state
                 setIsFocusMode(false);
                 setIsToolbarCollapsed(false);
                 setIsNavbarCollapsed(false);
@@ -401,6 +477,7 @@ function App() {
               }}
             />
           )}
+
         </div>
 
         {/* Premium Panel System */}

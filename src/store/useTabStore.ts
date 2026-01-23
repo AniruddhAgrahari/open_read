@@ -9,7 +9,11 @@ interface TextBox {
   x: number;
   y: number;
   content: string;
-  type: string; // 'title', 'h1', 'h2', 'h3', 'text'
+  type: string; // 'title', 'h1', 'h2', 'h3', 'text', 'rect', 'circle', 'oval', 'arrow'
+  width?: number;
+  height?: number;
+  rotation?: number;
+  color?: string;
 }
 
 interface Tab {
@@ -23,6 +27,8 @@ interface Tab {
   lastAccessed: number;
   edits: Record<string, string>;
   textBoxes: TextBox[];
+  history: TextBox[][]; // History of textBoxes states
+  historyIndex: number; // Current position in history
 }
 
 interface TabState {
@@ -31,6 +37,7 @@ interface TabState {
   isEditMode: boolean;
   viewMode: ViewMode;
   maxActiveTabs: number;
+  shapeColor: string;
   addTab: (name: string, path: string) => void;
   removeTab: (id: string) => void;
   setActiveTab: (id: string) => void;
@@ -42,7 +49,11 @@ interface TabState {
   setMaxActiveTabs: (count: number) => void;
   addTextBox: (tabId: string, box: Omit<TextBox, 'id'>) => void;
   updateTextBox: (tabId: string, boxId: string, content: string) => void;
+  updateBox: (tabId: string, boxId: string, updates: Partial<TextBox>) => void;
   deleteTextBox: (tabId: string, boxId: string) => void;
+  undo: (tabId: string) => void;
+  redo: (tabId: string) => void;
+  setShapeColor: (color: string) => void;
 }
 
 export const useTabStore = create<TabState>()(
@@ -53,6 +64,7 @@ export const useTabStore = create<TabState>()(
       isEditMode: false,
       viewMode: 'dark',
       maxActiveTabs: 3,
+      shapeColor: '#ef4444', // Default red
       addTab: (name, path) => set((state) => {
         const id = Math.random().toString(36).substr(2, 9);
         const now = Date.now();
@@ -67,6 +79,8 @@ export const useTabStore = create<TabState>()(
           lastAccessed: now,
           edits: {},
           textBoxes: [],
+          history: [[]],
+          historyIndex: 0,
         };
 
         const updatedTabs = state.tabs.map(t => ({ ...t, isActive: false }));
@@ -129,30 +143,119 @@ export const useTabStore = create<TabState>()(
       toggleEditMode: () => set((state) => ({ isEditMode: !state.isEditMode })),
       setViewMode: (viewMode) => set({ viewMode }),
       setMaxActiveTabs: (maxActiveTabs) => set({ maxActiveTabs }),
-      addTextBox: (tabId, box) => set((state) => ({
-        tabs: state.tabs.map((t) =>
-          t.id === tabId
-            ? { ...t, textBoxes: [...t.textBoxes, { ...box, id: Math.random().toString(36).substr(2, 9) }] }
-            : t
-        )
+      setShapeColor: (shapeColor) => set({ shapeColor }),
+      addTextBox: (tabId, box) => set((state) => {
+        const MAX_HISTORY = 50;
+        return {
+          tabs: state.tabs.map((t) => {
+            if (t.id === tabId) {
+              const newTextBoxes = [...t.textBoxes, { ...box, id: Math.random().toString(36).substr(2, 9) }];
+              const newHistory = [...t.history.slice(0, t.historyIndex + 1), newTextBoxes].slice(-MAX_HISTORY);
+              return {
+                ...t,
+                textBoxes: newTextBoxes,
+                history: newHistory,
+                historyIndex: newHistory.length - 1
+              };
+            }
+            return t;
+          })
+        };
+      }),
+      updateTextBox: (tabId, boxId, content) => set((state) => {
+        const MAX_HISTORY = 50;
+        return {
+          tabs: state.tabs.map((t) => {
+            if (t.id === tabId) {
+              const newTextBoxes = t.textBoxes.map(b => b.id === boxId ? { ...b, content } : b);
+              const newHistory = [...t.history.slice(0, t.historyIndex + 1), newTextBoxes].slice(-MAX_HISTORY);
+              return {
+                ...t,
+                textBoxes: newTextBoxes,
+                history: newHistory,
+                historyIndex: newHistory.length - 1
+              };
+            }
+            return t;
+          })
+        };
+      }),
+      updateBox: (tabId, boxId, updates) => set((state) => {
+        const MAX_HISTORY = 50;
+        return {
+          tabs: state.tabs.map((t) => {
+            if (t.id === tabId) {
+              const newTextBoxes = t.textBoxes.map(b => b.id === boxId ? { ...b, ...updates } : b);
+              const newHistory = [...t.history.slice(0, t.historyIndex + 1), newTextBoxes].slice(-MAX_HISTORY);
+              return {
+                ...t,
+                textBoxes: newTextBoxes,
+                history: newHistory,
+                historyIndex: newHistory.length - 1
+              };
+            }
+            return t;
+          })
+        };
+      }),
+      deleteTextBox: (tabId, boxId) => set((state) => {
+        const MAX_HISTORY = 50;
+        return {
+          tabs: state.tabs.map((t) => {
+            if (t.id === tabId) {
+              const newTextBoxes = t.textBoxes.filter(b => b.id !== boxId);
+              const newHistory = [...t.history.slice(0, t.historyIndex + 1), newTextBoxes].slice(-MAX_HISTORY);
+              return {
+                ...t,
+                textBoxes: newTextBoxes,
+                history: newHistory,
+                historyIndex: newHistory.length - 1
+              };
+            }
+            return t;
+          })
+        };
+      }),
+      undo: (tabId) => set((state) => ({
+        tabs: state.tabs.map((t) => {
+          if (t.id === tabId && t.historyIndex > 0) {
+            const newIndex = t.historyIndex - 1;
+            return {
+              ...t,
+              textBoxes: t.history[newIndex],
+              historyIndex: newIndex
+            };
+          }
+          return t;
+        })
       })),
-      updateTextBox: (tabId, boxId, content) => set((state) => ({
-        tabs: state.tabs.map((t) =>
-          t.id === tabId
-            ? { ...t, textBoxes: t.textBoxes.map(b => b.id === boxId ? { ...b, content } : b) }
-            : t
-        )
-      })),
-      deleteTextBox: (tabId, boxId) => set((state) => ({
-        tabs: state.tabs.map((t) =>
-          t.id === tabId
-            ? { ...t, textBoxes: t.textBoxes.filter(b => b.id !== boxId) }
-            : t
-        )
+      redo: (tabId) => set((state) => ({
+        tabs: state.tabs.map((t) => {
+          if (t.id === tabId && t.historyIndex < t.history.length - 1) {
+            const newIndex = t.historyIndex + 1;
+            return {
+              ...t,
+              textBoxes: t.history[newIndex],
+              historyIndex: newIndex
+            };
+          }
+          return t;
+        })
       })),
     }),
     {
       name: 'pdf-tabs-storage',
+      migrate: (persistedState: any) => {
+        // Migrate old tabs to include history fields
+        if (persistedState?.tabs) {
+          persistedState.tabs = persistedState.tabs.map((tab: any) => ({
+            ...tab,
+            history: tab.history || [tab.textBoxes || []],
+            historyIndex: tab.historyIndex ?? 0
+          }));
+        }
+        return persistedState;
+      }
     }
   )
 );
