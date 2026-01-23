@@ -3,6 +3,15 @@ import { persist } from 'zustand/middleware';
 
 type ViewMode = 'normal' | 'dark' | 'eye-comfort' | 'focus';
 
+interface TextBox {
+  id: string;
+  page: number;
+  x: number;
+  y: number;
+  content: string;
+  type: string; // 'title', 'h1', 'h2', 'h3', 'text'
+}
+
 interface Tab {
   id: string;
   name: string;
@@ -12,7 +21,8 @@ interface Tab {
   scrollPosition: { x: number; y: number };
   zoom: number;
   lastAccessed: number;
-  edits: Record<string, string>; // Map of unique span ID -> new text content
+  edits: Record<string, string>;
+  textBoxes: TextBox[];
 }
 
 interface TabState {
@@ -30,6 +40,9 @@ interface TabState {
   toggleEditMode: () => void;
   setViewMode: (mode: ViewMode) => void;
   setMaxActiveTabs: (count: number) => void;
+  addTextBox: (tabId: string, box: Omit<TextBox, 'id'>) => void;
+  updateTextBox: (tabId: string, boxId: string, content: string) => void;
+  deleteTextBox: (tabId: string, boxId: string) => void;
 }
 
 export const useTabStore = create<TabState>()(
@@ -53,6 +66,7 @@ export const useTabStore = create<TabState>()(
           zoom: 1.0,
           lastAccessed: now,
           edits: {},
+          textBoxes: [],
         };
 
         const updatedTabs = state.tabs.map(t => ({ ...t, isActive: false }));
@@ -115,6 +129,27 @@ export const useTabStore = create<TabState>()(
       toggleEditMode: () => set((state) => ({ isEditMode: !state.isEditMode })),
       setViewMode: (viewMode) => set({ viewMode }),
       setMaxActiveTabs: (maxActiveTabs) => set({ maxActiveTabs }),
+      addTextBox: (tabId, box) => set((state) => ({
+        tabs: state.tabs.map((t) =>
+          t.id === tabId
+            ? { ...t, textBoxes: [...t.textBoxes, { ...box, id: Math.random().toString(36).substr(2, 9) }] }
+            : t
+        )
+      })),
+      updateTextBox: (tabId, boxId, content) => set((state) => ({
+        tabs: state.tabs.map((t) =>
+          t.id === tabId
+            ? { ...t, textBoxes: t.textBoxes.map(b => b.id === boxId ? { ...b, content } : b) }
+            : t
+        )
+      })),
+      deleteTextBox: (tabId, boxId) => set((state) => ({
+        tabs: state.tabs.map((t) =>
+          t.id === tabId
+            ? { ...t, textBoxes: t.textBoxes.filter(b => b.id !== boxId) }
+            : t
+        )
+      })),
     }),
     {
       name: 'pdf-tabs-storage',

@@ -4,6 +4,8 @@ import { useAiStore } from './store/useAiStore';
 import { PDFViewer } from './components/PDFViewer';
 import { ApiKeyModal } from './components/ApiKeyModal';
 import { FloatingToolbar, PremiumPanel } from './components/FloatingToolbar';
+import { EditorToolbar } from './components/EditorToolbar';
+import { PageIndicator } from './components/PageIndicator';
 import { analyzeTextWithGroq } from './services/groqService';
 import {
   Plus,
@@ -11,27 +13,17 @@ import {
   FileText,
   Sparkles,
   Command,
-  Edit3,
-  MousePointer2,
   Loader2,
   ChevronRight,
   Wifi,
   Leaf,
-  Cpu,
-  Type,
-  Heading1,
-  Heading2,
-  Heading3,
-  Quote,
-  Tag,
-  Table,
-  List,
-  Grid
+  Cpu
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { open } from '@tauri-apps/plugin-dialog';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
+import ReactMarkdown from 'react-markdown';
 
 function App() {
   const { tabs, activeTabId, isEditMode, viewMode, addTab, removeTab, setActiveTab, toggleEditMode } = useTabStore();
@@ -43,6 +35,10 @@ function App() {
   const [isNavbarCollapsed, setIsNavbarCollapsed] = useState(false);
   const [isToolbarCollapsed, setIsToolbarCollapsed] = useState(false);
   const [isFocusMode, setIsFocusMode] = useState(false);
+  const [activeEditorTool, setActiveEditorTool] = useState<string | null>(null);
+  const [currentPdfPage, setCurrentPdfPage] = useState(1);
+  const [totalPdfPages, setTotalPdfPages] = useState(0);
+  const [jumpToPage, setJumpToPage] = useState<number | undefined>(undefined);
   const lastDismissTime = useRef<number>(0);
 
   // Handle view mode changes
@@ -190,34 +186,6 @@ function App() {
 
   const activeTab = tabs.find(t => t.id === activeTabId);
 
-  const blockSections = [
-    {
-      title: "Basic blocks",
-      blocks: [
-        { icon: Type, label: "Title", sub: "! Title" },
-        { icon: Heading1, label: "Heading 1", sub: "# Heading 1" },
-        { icon: Heading2, label: "Heading 2", sub: "## Heading 2" },
-        { icon: Heading3, label: "Heading 3", sub: "### Heading 3" },
-        { icon: Quote, label: "Blockquote", sub: "> Quote" },
-        { icon: Tag, label: "Label", sub: "Tag" }
-      ]
-    },
-    {
-      title: "Tables",
-      blocks: [
-        { icon: Table, label: "2x2 table", sub: "/table" },
-        { icon: Grid, label: "3x3 table", sub: "/grid" },
-        { icon: Table, label: "4x4 table", sub: "/table" }
-      ]
-    },
-    {
-      title: "Lists",
-      blocks: [
-        { icon: List, label: "Bullet List", sub: "/list" },
-        { icon: List, label: "Numbered List", sub: "/num" }
-      ]
-    }
-  ];
 
   return (
     <div className="app-container">
@@ -343,10 +311,17 @@ function App() {
                 <PDFViewer
                   tabId={activeTab.id}
                   path={activeTab.path}
+                  isEditMode={isEditMode}
                   onSelection={handleSelection}
                   selection={selection}
                   onCloseSelection={() => setSelection(null)}
                   onDeepDive={handleDeepDive}
+                  onPageInfoChange={(current, total) => {
+                    setCurrentPdfPage(current);
+                    setTotalPdfPages(total);
+                  }}
+                  jumpToPage={jumpToPage}
+                  activeTool={activeEditorTool}
                 />
               </motion.div>
             ) : (
@@ -396,7 +371,36 @@ function App() {
                 setIsToolbarCollapsed(false);
               }
             }}
+            isEditMode={isEditMode}
+            onEditToggle={() => {
+              if (isEditMode) setActiveEditorTool(null);
+              toggleEditMode();
+            }}
           />
+
+          {/* Persistent Editor Toolbar */}
+          <EditorToolbar
+            isOpen={isEditMode}
+            onClose={() => {
+              if (isEditMode) setActiveEditorTool(null);
+              toggleEditMode();
+            }}
+            activeTool={activeEditorTool}
+            onToolSelect={setActiveEditorTool}
+          />
+
+          {/* Page Indicator */}
+          {activeTab && totalPdfPages > 0 && (
+            <PageIndicator
+              currentPage={currentPdfPage}
+              totalPages={totalPdfPages}
+              onPageJump={(page) => {
+                setJumpToPage(page);
+                // Reset jumpToPage after a small delay to allow re-triggering the same page
+                setTimeout(() => setJumpToPage(undefined), 500);
+              }}
+            />
+          )}
         </div>
 
         {/* Premium Panel System */}
@@ -428,8 +432,8 @@ function App() {
                 ) : error ? (
                   <div style={{ color: '#ef4444', fontSize: 12, lineHeight: 1.5 }}>{error}</div>
                 ) : analysis ? (
-                  <div className="analysis-text" style={{ lineHeight: 1.6, fontSize: 13 }}>
-                    {analysis}
+                  <div className="analysis-text">
+                    <ReactMarkdown>{analysis}</ReactMarkdown>
                   </div>
                 ) : (
                   <p style={{ opacity: 0.5, fontSize: 12, textAlign: 'center', padding: '20px 0' }}>
@@ -440,56 +444,6 @@ function App() {
             </div>
           )}
 
-          {activeDrawer === 'edit' && (
-            <div>
-              <div
-                onClick={toggleEditMode}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  padding: '12px 16px',
-                  borderRadius: 14,
-                  background: isEditMode ? 'var(--tab-active)' : 'rgba(255, 255, 255, 0.05)',
-                  cursor: 'pointer',
-                  color: isEditMode ? 'white' : 'var(--text-primary)',
-                  border: '1px solid var(--glass-border)',
-                  marginBottom: 20,
-                  transition: 'all 0.2s'
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  {isEditMode ? <Edit3 size={16} /> : <MousePointer2 size={16} />}
-                  <span style={{ fontWeight: 600, fontSize: 13 }}>{isEditMode ? 'Inline Editor Active' : 'Enable Editor'}</span>
-                </div>
-                <div style={{
-                  width: 8,
-                  height: 8,
-                  borderRadius: '50%',
-                  background: isEditMode ? '#4ade80' : 'rgba(255,255,255,0.2)'
-                }} />
-              </div>
-
-              {blockSections.map((section, idx) => (
-                <div key={idx} style={{ marginBottom: 20 }}>
-                  <div className="panel-section-title">{section.title}</div>
-                  <div className="block-grid">
-                    {section.blocks.map((block, bIdx) => {
-                      const Icon = block.icon;
-                      return (
-                        <div key={bIdx} className="block-item">
-                          <div className="block-icon-wrapper">
-                            <Icon size={20} />
-                          </div>
-                          <span className="block-label">{block.label}</span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
         </PremiumPanel>
 
         {/* API Key Modal */}

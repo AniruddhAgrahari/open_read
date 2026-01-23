@@ -21,6 +21,8 @@ interface FloatingToolbarProps {
     isCollapsed: boolean;
     onCollapseToggle: () => void;
     onFocusModeToggle: (enabled: boolean) => void;
+    isEditMode: boolean;
+    onEditToggle: () => void;
 }
 
 export const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
@@ -28,7 +30,9 @@ export const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
     onDrawerToggle,
     isCollapsed,
     onCollapseToggle,
-    onFocusModeToggle
+    onFocusModeToggle,
+    isEditMode,
+    onEditToggle
 }) => {
     const { viewMode, setViewMode } = useTabStore();
     const [isViewMenuOpen, setIsViewMenuOpen] = useState(false);
@@ -113,14 +117,14 @@ export const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
 
                 {tools.map((tool) => {
                     const Icon = tool.icon;
-                    const isActive = activeDrawer === tool.id;
+                    const isEditTool = tool.id === 'edit';
+                    const isActive = isEditTool ? isEditMode : activeDrawer === tool.id;
 
                     return (
                         <motion.button
                             key={tool.id}
-                            onClick={() => onDrawerToggle(tool.id)}
+                            onClick={() => isEditTool ? onEditToggle() : onDrawerToggle(tool.id)}
                             className={`toolbar-btn ${isActive ? 'active' : ''}`}
-                            title={tool.label}
                             whileHover={{ scale: 1.1 }}
                             whileTap={{ scale: 0.95 }}
                         >
