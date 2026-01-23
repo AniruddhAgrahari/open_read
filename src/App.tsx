@@ -41,6 +41,7 @@ function App() {
   const [currentPdfPage, setCurrentPdfPage] = useState(1);
   const [totalPdfPages, setTotalPdfPages] = useState(0);
   const [jumpToPage, setJumpToPage] = useState<number | undefined>(undefined);
+  const [collapseToolbarSubMenus, setCollapseToolbarSubMenus] = useState(false);
   const lastDismissTime = useRef<number>(0);
 
   // Handle view mode changes
@@ -340,6 +341,7 @@ function App() {
                   }}
                   jumpToPage={jumpToPage}
                   activeTool={activeEditorTool}
+                  onInteraction={() => setCollapseToolbarSubMenus(true)}
                 />
 
                 {/* Undo/Redo Buttons - Inside PDF Viewing Area */}
@@ -463,6 +465,8 @@ function App() {
             }}
             activeTool={activeEditorTool}
             onToolSelect={setActiveEditorTool}
+            collapseSubMenus={collapseToolbarSubMenus}
+            onSubMenuCollapsed={() => setCollapseToolbarSubMenus(false)}
           />
 
           {/* Page Indicator */}

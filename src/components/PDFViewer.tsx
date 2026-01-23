@@ -1,9 +1,10 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Document, Page, pdfjs } from 'react-pdf';
 import { useTabStore } from '../store/useTabStore';
 import { DictionaryBubble } from './DictionaryBubble';
 import { DraggableTextBox } from './DraggableTextBox';
 import { DraggableShape } from './DraggableShape';
+import { DraggableHighlight } from './DraggableHighlight';
 import { AnimatePresence } from 'framer-motion';
 import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
@@ -22,6 +23,7 @@ interface PDFViewerProps {
     onDeepDive?: (text: string) => void;
     onPageInfoChange?: (current: number, total: number) => void;
     jumpToPage?: number;
+    onInteraction?: () => void;
 }
 
 export const PDFViewer: React.FC<PDFViewerProps> = ({
@@ -34,7 +36,8 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
     onCloseSelection,
     onDeepDive,
     onPageInfoChange,
-    jumpToPage
+    jumpToPage,
+    onInteraction
 }) => {
     const [numPages, setNumPages] = useState<number>(0);
     const [currentPage, setCurrentPage] = useState<number>(1);
@@ -163,6 +166,89 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
         currentY: 0
     });
 
+    // Handle text highlighting - captures selection and creates highlight annotation
+    const handleHighlightSelection = useCallback((pageIndex: number) => {
+        if (activeTool !== 'highlighter') return;
+
+        const selection = window.getSelection();
+        if (!selection || selection.isCollapsed || selection.rangeCount === 0) return;
+
+        const range = selection.getRangeAt(0);
+        const pageContainer = pageRefs.current[pageIndex];
+        if (!pageContainer) return;
+
+        const containerRect = pageContainer.getBoundingClientRect();
+
+        // Get all the client rects from the selection - this gives us line-by-line bounding boxes
+        const clientRects = range.getClientRects();
+        if (clientRects.length === 0) return;
+
+        // Convert client rects to percentage coordinates relative to page container
+        const rects: Array<{ x: number; y: number; width: number; height: number }> = [];
+
+        // Group rects by line (consolidate overlapping rects on same line)
+        const lineThreshold = 5; // pixels - if y difference is less than this, consider same line
+        let currentLineRects: DOMRect[] = [];
+        let lastY = -1000;
+
+        Array.from(clientRects).forEach((clientRect) => {
+            // Skip tiny rects (usually whitespace)
+            if (clientRect.width < 2 || clientRect.height < 2) return;
+
+            // Check if this rect is on a new line
+            if (Math.abs(clientRect.top - lastY) > lineThreshold && currentLineRects.length > 0) {
+                // Consolidate previous line rects into one
+                const minX = Math.min(...currentLineRects.map(r => r.left));
+                const maxX = Math.max(...currentLineRects.map(r => r.right));
+                const minY = Math.min(...currentLineRects.map(r => r.top));
+                const maxY = Math.max(...currentLineRects.map(r => r.bottom));
+
+                rects.push({
+                    x: ((minX - containerRect.left) / containerRect.width) * 100,
+                    y: ((minY - containerRect.top) / containerRect.height) * 100,
+                    width: ((maxX - minX) / containerRect.width) * 100,
+                    height: ((maxY - minY) / containerRect.height) * 100
+                });
+
+                currentLineRects = [];
+            }
+
+            currentLineRects.push(clientRect);
+            lastY = clientRect.top;
+        });
+
+        // Don't forget the last line
+        if (currentLineRects.length > 0) {
+            const minX = Math.min(...currentLineRects.map(r => r.left));
+            const maxX = Math.max(...currentLineRects.map(r => r.right));
+            const minY = Math.min(...currentLineRects.map(r => r.top));
+            const maxY = Math.max(...currentLineRects.map(r => r.bottom));
+
+            rects.push({
+                x: ((minX - containerRect.left) / containerRect.width) * 100,
+                y: ((minY - containerRect.top) / containerRect.height) * 100,
+                width: ((maxX - minX) / containerRect.width) * 100,
+                height: ((maxY - minY) / containerRect.height) * 100
+            });
+        }
+
+        if (rects.length === 0) return;
+
+        // Create the highlight annotation
+        addTextBox(tabId, {
+            page: pageIndex + 1,
+            x: rects[0].x,
+            y: rects[0].y,
+            content: selection.toString(),
+            type: 'highlight',
+            color: shapeColor,
+            rects: rects
+        });
+
+        // Clear selection after highlighting
+        selection.removeAllRanges();
+    }, [activeTool, shapeColor, addTextBox, tabId]);
+
     const handleShapeMouseDown = (e: React.MouseEvent, pageNum: number, pageIndex: number) => {
         if (!['rect', 'circle', 'oval', 'arrow'].includes(activeTool || '')) return;
 
@@ -276,7 +362,7 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
     };
 
     const handlePageClick = (e: React.MouseEvent, pageNum: number) => {
-        if (!isEditMode || !activeTool || activeTool === 'pointer' || ['rect', 'circle', 'oval', 'arrow'].includes(activeTool)) {
+        if (!isEditMode || !activeTool || activeTool === 'pointer' || activeTool === 'highlighter' || ['rect', 'circle', 'oval', 'arrow'].includes(activeTool)) {
             setSelectedBoxId(null);
             return;
         }
@@ -331,7 +417,7 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
         <div
             ref={containerRef}
             className={`pdf-viewer-container custom-scrollbar ${activeTool ? 'edit-active' : ''}`}
-            onClick={() => setSelectedBoxId(null)}
+            onClick={() => { setSelectedBoxId(null); onInteraction?.(); }}
             style={{
                 width: '100%',
                 height: '100%',
@@ -357,10 +443,16 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
                             pageRefs.current[index] = el;
                         }}
                         data-page-index={index}
-                        className={`pdf-page-container ${isEditMode ? 'edit-mode' : ''}`}
+                        className={`pdf-page-container ${isEditMode ? 'edit-mode' : ''} ${activeTool === 'highlighter' ? 'highlighter-mode' : ''}`}
                         onMouseDown={(e) => handleShapeMouseDown(e, index + 1, index)}
                         onMouseMove={handleShapeMouseMove}
-                        onMouseUp={handleShapeMouseUp}
+                        onMouseUp={(e) => {
+                            handleShapeMouseUp(e);
+                            // Handle highlight selection on mouseup
+                            if (activeTool === 'highlighter') {
+                                handleHighlightSelection(index);
+                            }
+                        }}
                         // Click is legacy handled, but we separate concerns via isDrawing checks
                         onClick={(e) => !drawingState.isDrawing && handlePageClick(e, index + 1)}
                         style={{
@@ -372,7 +464,7 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
                             boxShadow: isDarkMode
                                 ? '0 10px 30px rgba(0,0,0,0.5)'
                                 : '0 4px 20px rgba(0,0,0,0.08)',
-                            cursor: ['rect', 'circle', 'oval', 'arrow'].includes(activeTool || '') ? 'crosshair' : (activeTool && activeTool !== 'pointer' ? 'text' : 'default'),
+                            cursor: ['rect', 'circle', 'oval', 'arrow'].includes(activeTool || '') ? 'crosshair' : (activeTool === 'highlighter' ? 'text' : (activeTool && activeTool !== 'pointer' ? 'text' : 'default')),
                             transform: `scale(${scale})`,
                             transformOrigin: 'top center',
                             transition: scale === 1 ? 'transform 0.2s ease-out' : 'none',
@@ -442,6 +534,20 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
 
                         {/* Annotations Layer */}
                         {textBoxes.filter(box => box.page === index + 1).map(box => {
+                            // Render highlights first (they go behind other annotations)
+                            if (box.type === 'highlight' && box.rects) {
+                                return (
+                                    <DraggableHighlight
+                                        key={box.id}
+                                        id={box.id}
+                                        rects={box.rects}
+                                        color={box.color}
+                                        isSelected={selectedBoxId === box.id}
+                                        onDelete={() => deleteTextBox(tabId, box.id)}
+                                        onSelect={() => setSelectedBoxId(box.id)}
+                                    />
+                                );
+                            }
                             if (['rect', 'circle', 'oval', 'arrow'].includes(box.type)) {
                                 return (
                                     <DraggableShape
@@ -541,6 +647,16 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
                 .pdf-page-container.edit-mode .react-pdf__Page__textContent,
                 .pdf-page-container.edit-mode .react-pdf__Page__textContent span {
                     cursor: inherit !important;
+                }
+                /* Highlighter mode - enable text selection with colored highlight */
+                .pdf-page-container.highlighter-mode .react-pdf__Page__textContent,
+                .pdf-page-container.highlighter-mode .react-pdf__Page__textContent span {
+                    cursor: text !important;
+                    user-select: text !important;
+                    -webkit-user-select: text !important;
+                }
+                .pdf-page-container.highlighter-mode .react-pdf__Page__textContent ::selection {
+                    background: ${shapeColor}66 !important;
                 }
             `}</style>
         </div>

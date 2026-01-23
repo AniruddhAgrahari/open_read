@@ -1,20 +1,18 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
     Type,
     Heading1,
     Heading2,
     Heading3,
-    Table,
-    List,
-    Grid,
     X,
     ChevronRight,
     MousePointer2,
     Square,
     Circle,
     Shapes,
-    ArrowRight
+    ArrowRight,
+    Highlighter
 } from 'lucide-react';
 import { useTabStore } from '../store/useTabStore';
 
@@ -42,18 +40,13 @@ const editorTools: EditorTool[] = [
         id: 'shapes',
         icon: Shapes,
         label: 'Shapes',
-        // Note: Shapes now use the special pod UI, not a traditional submenu
+        // Note: Shapes use the special pod UI, not a traditional submenu
     },
     {
-        id: 'layout',
-        icon: Table,
-        label: 'Layout & Lists',
-        subMenu: [
-            { label: '2x2 Table', value: 'table-2x2', icon: Table },
-            { label: '3x3 Grid', value: 'grid-3x3', icon: Grid },
-            { label: 'Bullet List', value: 'list-bullet', icon: List },
-            { label: 'Numbered List', value: 'list-num', icon: List },
-        ]
+        id: 'highlighter',
+        icon: Highlighter,
+        label: 'Highlighter',
+        // Note: Highlighter will also use the color pod UI
     }
 ];
 
@@ -79,22 +72,61 @@ interface EditorToolbarProps {
     onClose: () => void;
     activeTool: string | null;
     onToolSelect: (toolId: string) => void;
+    collapseSubMenus?: boolean;
+    onSubMenuCollapsed?: () => void;
 }
 
 export const EditorToolbar: React.FC<EditorToolbarProps> = ({
     isOpen,
     onClose,
     activeTool,
-    onToolSelect
+    onToolSelect,
+    collapseSubMenus,
+    onSubMenuCollapsed
 }) => {
     const [hoveredTool, setHoveredTool] = useState<string | null>(null);
     const [openSubMenu, setOpenSubMenu] = useState<string | null>(null);
     const { shapeColor, setShapeColor } = useTabStore();
+    const toolbarRef = useRef<HTMLDivElement>(null);
+
+    // Collapse submenus when triggered from parent
+    useEffect(() => {
+        if (collapseSubMenus && openSubMenu) {
+            setOpenSubMenu(null);
+            onSubMenuCollapsed?.();
+        }
+    }, [collapseSubMenus]);
+
+    // Close submenu when clicking outside the toolbar
+    useEffect(() => {
+        const handleClickOutside = (e: MouseEvent) => {
+            if (toolbarRef.current && !toolbarRef.current.contains(e.target as Node)) {
+                setOpenSubMenu(null);
+            }
+        };
+
+        if (openSubMenu) {
+            document.addEventListener('mousedown', handleClickOutside);
+        }
+
+        return () => {
+            document.removeEventListener('mousedown', handleClickOutside);
+        };
+    }, [openSubMenu]);
 
     const handleToolClick = (tool: EditorTool) => {
         if (tool.id === 'shapes') {
             // Toggle shapes pod
             setOpenSubMenu(openSubMenu === 'shapes' ? null : 'shapes');
+        } else if (tool.id === 'highlighter') {
+            // Toggle highlighter (activates the tool and shows color pod)
+            if (openSubMenu === 'highlighter') {
+                setOpenSubMenu(null);
+                onToolSelect('');
+            } else {
+                setOpenSubMenu('highlighter');
+                onToolSelect('highlighter');
+            }
         } else if (tool.subMenu) {
             setOpenSubMenu(openSubMenu === tool.id ? null : tool.id);
         } else {
@@ -112,6 +144,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
         <AnimatePresence>
             {isOpen && (
                 <motion.div
+                    ref={toolbarRef}
                     className="editor-toolbar"
                     initial={{ opacity: 0, x: -50 }}
                     animate={{ opacity: 1, x: 0 }}
@@ -273,6 +306,59 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
                                                         );
                                                     })}
                                                 </div>
+                                            </motion.div>
+                                        )}
+                                    </AnimatePresence>
+
+                                    {/* Highlighter Color Pod */}
+                                    <AnimatePresence>
+                                        {isSubMenuOpen && tool.id === 'highlighter' && (
+                                            <motion.div
+                                                className="editor-shapes-pod"
+                                                initial={{ opacity: 0, x: -10, scale: 0.95 }}
+                                                animate={{ opacity: 1, x: 0, scale: 1 }}
+                                                exit={{ opacity: 0, x: -10, scale: 0.95 }}
+                                                style={{
+                                                    position: 'absolute',
+                                                    left: 70,
+                                                    top: '50%',
+                                                    transform: 'translateY(-50%)',
+                                                    background: 'rgba(30, 30, 35, 0.95)',
+                                                    backdropFilter: 'blur(12px)',
+                                                    border: '1px solid rgba(255,255,255,0.1)',
+                                                    borderRadius: 12,
+                                                    padding: 10,
+                                                    display: 'flex',
+                                                    flexDirection: 'row',
+                                                    flexWrap: 'wrap',
+                                                    gap: 8,
+                                                    boxShadow: '0 8px 32px rgba(0,0,0,0.4)',
+                                                    zIndex: 1000,
+                                                    width: 80
+                                                }}
+                                            >
+                                                {/* Color Swatches for Highlighter */}
+                                                {COLOR_SWATCHES.map((color) => {
+                                                    const isColorActive = shapeColor === color.value;
+                                                    return (
+                                                        <button
+                                                            key={color.value}
+                                                            onClick={() => setShapeColor(color.value)}
+                                                            title={color.label}
+                                                            style={{
+                                                                width: 20,
+                                                                height: 20,
+                                                                background: color.value,
+                                                                border: color.value === '#ffffff' ? '1px solid rgba(0,0,0,0.2)' : 'none',
+                                                                borderRadius: '50%',
+                                                                cursor: 'pointer',
+                                                                transition: 'all 0.2s',
+                                                                transform: isColorActive ? 'scale(1.2)' : 'scale(1)',
+                                                                boxShadow: isColorActive ? `0 0 0 2px rgba(255,255,255,0.5), 0 0 8px ${color.value}` : 'none'
+                                                            }}
+                                                        />
+                                                    );
+                                                })}
                                             </motion.div>
                                         )}
                                     </AnimatePresence>

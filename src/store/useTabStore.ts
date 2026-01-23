@@ -9,11 +9,12 @@ interface TextBox {
   x: number;
   y: number;
   content: string;
-  type: string; // 'title', 'h1', 'h2', 'h3', 'text', 'rect', 'circle', 'oval', 'arrow'
+  type: string; // 'title', 'h1', 'h2', 'h3', 'text', 'rect', 'circle', 'oval', 'arrow', 'highlight'
   width?: number;
   height?: number;
   rotation?: number;
   color?: string;
+  rects?: Array<{ x: number; y: number; width: number; height: number }>; // For multi-line highlights
 }
 
 interface Tab {
