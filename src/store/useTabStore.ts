@@ -21,6 +21,7 @@ interface Tab {
   id: string;
   name: string;
   path: string;
+  realPath?: string;
   isActive: boolean;
   isSuspended: boolean;
   scrollPosition: { x: number; y: number };
@@ -39,7 +40,7 @@ interface TabState {
   viewMode: ViewMode;
   maxActiveTabs: number;
   shapeColor: string;
-  addTab: (name: string, path: string) => void;
+  addTab: (name: string, path: string, realPath?: string) => void;
   removeTab: (id: string) => void;
   setActiveTab: (id: string) => void;
   updateTab: (id: string, updates: Partial<Tab>) => void;
@@ -66,13 +67,14 @@ export const useTabStore = create<TabState>()(
       viewMode: 'dark',
       maxActiveTabs: 3,
       shapeColor: '#ef4444', // Default red
-      addTab: (name, path) => set((state) => {
+      addTab: (name, path, realPath) => set((state) => {
         const id = Math.random().toString(36).substr(2, 9);
         const now = Date.now();
         const newTab = {
           id,
           name,
           path,
+          realPath,
           isActive: true,
           isSuspended: false,
           scrollPosition: { x: 0, y: 0 },

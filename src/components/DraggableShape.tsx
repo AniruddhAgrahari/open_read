@@ -26,7 +26,6 @@ export const DraggableShape: React.FC<DraggableShapeProps> = ({
     rotation = 0,
     color = '#ef4444',
     isSelected,
-    onUpdate,
     onDelete,
     onSelect
 }) => {

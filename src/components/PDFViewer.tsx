@@ -24,6 +24,8 @@ interface PDFViewerProps {
     onPageInfoChange?: (current: number, total: number) => void;
     jumpToPage?: number;
     onInteraction?: () => void;
+    onTextExtracted?: (text: string) => void;
+    isSidebarOpen?: boolean;
 }
 
 export const PDFViewer: React.FC<PDFViewerProps> = ({
@@ -37,16 +39,19 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
     onDeepDive,
     onPageInfoChange,
     jumpToPage,
-    onInteraction
+    onInteraction,
+    onTextExtracted,
+    isSidebarOpen
 }) => {
     const [numPages, setNumPages] = useState<number>(0);
     const [currentPage, setCurrentPage] = useState<number>(1);
     const [renderedWidth, setRenderedWidth] = useState<number>(0); // The width the PDF is currently drawn at
-    const [scale, setScale] = useState<number>(1); // The visual CSS scale
     const [selectedBoxId, setSelectedBoxId] = useState<string | null>(null);
     const containerRef = useRef<HTMLDivElement>(null);
     const pageRefs = useRef<(HTMLDivElement | null)[]>([]);
     const resizeTimeoutRef = useRef<number | null>(null);
+    const isTransitioningRef = useRef(false);
+    const scrollRatioRef = useRef(0);
 
     const {
         viewMode,
@@ -60,55 +65,79 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
 
     const currentTab = tabs.find(t => t.id === tabId);
     const textBoxes = currentTab?.textBoxes || [];
+    const zoom = currentTab?.zoom || 1.0;
 
     const isDarkMode = viewMode === 'dark' || viewMode === 'eye-comfort' || viewMode === 'focus';
 
+    // Unified resize and transition logic
     useEffect(() => {
         if (!containerRef.current) return;
 
-        const performUpdate = () => {
-            if (containerRef.current) {
-                const currentWidth = Math.max(containerRef.current.clientWidth - 60, 400);
-                const targetWidth = Math.min(currentWidth, 1000);
+        const syncSize = () => {
+            if (!containerRef.current) return;
+            // Calculate base width from container, minus padding
+            const currentWidth = Math.max(containerRef.current.clientWidth - 60, 400);
+            const targetWidth = Math.min(currentWidth, 1200);
 
-                if (renderedWidth === 0) {
-                    // Initial load
-                    setRenderedWidth(targetWidth);
-                    return;
-                }
-
-                // Immediate visual update via CSS scale
-                const newScale = targetWidth / renderedWidth;
-                setScale(newScale);
-
-                // Debounce the expensive re-render
-                if (resizeTimeoutRef.current) {
-                    clearTimeout(resizeTimeoutRef.current);
-                }
-
-                resizeTimeoutRef.current = setTimeout(() => {
-                    setRenderedWidth(targetWidth);
-                    setScale(1); // Reset scale once re-rendered
-                }, 300) as unknown as number;
+            if (targetWidth !== renderedWidth) {
+                setRenderedWidth(targetWidth);
             }
         };
 
-        // Initialize
-        if (renderedWidth === 0 && containerRef.current) {
-            const w = Math.min(Math.max(containerRef.current.clientWidth - 60, 400), 1000);
-            setRenderedWidth(w);
-        }
+        const performUpdate = () => {
+            if (isTransitioningRef.current || !containerRef.current) return;
+
+            // For initial load, set it immediately
+            if (renderedWidth === 0) {
+                syncSize();
+                return;
+            }
+
+            // Normal resize debounce
+            if (resizeTimeoutRef.current) clearTimeout(resizeTimeoutRef.current);
+            resizeTimeoutRef.current = setTimeout(syncSize, 150) as unknown as number;
+        };
 
         const resizeObserver = new ResizeObserver(performUpdate);
         resizeObserver.observe(containerRef.current);
 
+        // Initial measurement
+        performUpdate();
+
         return () => {
             resizeObserver.disconnect();
-            if (resizeTimeoutRef.current) {
-                clearTimeout(resizeTimeoutRef.current);
-            }
+            if (resizeTimeoutRef.current) clearTimeout(resizeTimeoutRef.current);
         };
     }, [renderedWidth]);
+
+    // Sidebar transition freeze handler
+    useEffect(() => {
+        if (renderedWidth === 0 || !containerRef.current) return;
+
+        // Freeze ResizeObserver updates during transition
+        isTransitioningRef.current = true;
+
+        const container = containerRef.current;
+        scrollRatioRef.current = container.scrollTop / container.scrollHeight;
+
+        const timer = setTimeout(() => {
+            isTransitioningRef.current = false;
+
+            // After transition finishes, sync to exact new size
+            const currentWidth = Math.max(container.clientWidth - 60, 400);
+            const targetWidth = Math.min(currentWidth, 1200);
+            setRenderedWidth(targetWidth);
+
+            // Restore scroll position
+            setTimeout(() => {
+                if (container) {
+                    container.scrollTop = scrollRatioRef.current * container.scrollHeight;
+                }
+            }, 50);
+        }, 400); // Slightly longer than CSS transition
+
+        return () => clearTimeout(timer);
+    }, [isSidebarOpen]);
 
     useEffect(() => {
         const options = {
@@ -144,9 +173,30 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
         }
     }, [jumpToPage, numPages]);
 
-    const onDocumentLoadSuccess = ({ numPages }: { numPages: number }) => {
+    const onDocumentLoadSuccess = async ({ numPages }: { numPages: number }) => {
         setNumPages(numPages);
         onPageInfoChange?.(1, numPages);
+
+        // Extract full document text for RAG
+        if (onTextExtracted) {
+            try {
+                const pdf = await pdfjs.getDocument(path).promise;
+                let fullText = '';
+
+                for (let i = 1; i <= numPages; i++) {
+                    const page = await pdf.getPage(i);
+                    const textContent = await page.getTextContent();
+                    const pageText = textContent.items
+                        .map((item: any) => item.str)
+                        .join(' ');
+                    fullText += `\n--- Page ${i} ---\n${pageText}`;
+                }
+
+                onTextExtracted(fullText);
+            } catch (err) {
+                console.error('Failed to extract document text:', err);
+            }
+        }
     };
 
     // Drawing State
@@ -249,7 +299,7 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
         selection.removeAllRanges();
     }, [activeTool, shapeColor, addTextBox, tabId]);
 
-    const handleShapeMouseDown = (e: React.MouseEvent, pageNum: number, pageIndex: number) => {
+    const handleShapeMouseDown = (e: React.MouseEvent, pageIndex: number) => {
         if (!['rect', 'circle', 'oval', 'arrow'].includes(activeTool || '')) return;
 
         e.preventDefault(); // Prevent browser's default text selection
@@ -290,7 +340,6 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
         // Finalize shape
         // Calculate Center, Width, Height, Rotation based on tool type
         const rect = e.currentTarget.getBoundingClientRect();
-        const aspectRatio = rect.width / rect.height;
 
         let width = Math.abs(currentX - startX);
         let height = Math.abs(currentY - startY);
@@ -444,7 +493,7 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
                         }}
                         data-page-index={index}
                         className={`pdf-page-container ${isEditMode ? 'edit-mode' : ''} ${activeTool === 'highlighter' ? 'highlighter-mode' : ''}`}
-                        onMouseDown={(e) => handleShapeMouseDown(e, index + 1, index)}
+                        onMouseDown={(e) => handleShapeMouseDown(e, index)}
                         onMouseMove={handleShapeMouseMove}
                         onMouseUp={(e) => {
                             handleShapeMouseUp(e);
@@ -453,22 +502,20 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
                                 handleHighlightSelection(index);
                             }
                         }}
-                        // Click is legacy handled, but we separate concerns via isDrawing checks
+                        // Click handled if not drawing
                         onClick={(e) => !drawingState.isDrawing && handlePageClick(e, index + 1)}
                         style={{
                             marginBottom: '24px',
                             background: isDarkMode ? '#1a1a1a' : 'white',
                             lineHeight: 0,
-                            maxWidth: '100%',
+                            width: (renderedWidth || 800) * zoom, // Match PDF width exactly
                             position: 'relative',
                             boxShadow: isDarkMode
                                 ? '0 10px 30px rgba(0,0,0,0.5)'
                                 : '0 4px 20px rgba(0,0,0,0.08)',
                             cursor: ['rect', 'circle', 'oval', 'arrow'].includes(activeTool || '') ? 'crosshair' : (activeTool === 'highlighter' ? 'text' : (activeTool && activeTool !== 'pointer' ? 'text' : 'default')),
-                            transform: `scale(${scale})`,
-                            transformOrigin: 'top center',
-                            transition: scale === 1 ? 'transform 0.2s ease-out' : 'none',
-                            userSelect: drawingState.isDrawing ? 'none' : 'auto'
+                            userSelect: drawingState.isDrawing ? 'none' : 'auto',
+                            transition: isTransitioningRef.current ? 'width 0.3s ease-out' : 'none'
                         }}
                     >
                         {/* Ghost Shape Layer */}
@@ -525,6 +572,7 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
                         <Page
                             pageNumber={index + 1}
                             width={renderedWidth || 800}
+                            scale={zoom}
                             renderTextLayer={true}
                             renderAnnotationLayer={false}
                             {...(isDarkMode ? { renderMode: 'svg' } : {}) as any}
@@ -619,8 +667,9 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
                     ${isDarkMode ? 'filter: invert(1) hue-rotate(180deg) brightness(0.9) contrast(1.1);' : ''}
                     ${viewMode === 'eye-comfort' ? 'filter: sepia(0.3) brightness(0.95);' : ''}
                     display: block !important;
-                    max-width: 100%;
-                    height: auto !important;
+                    width: 100% !important;
+                    height: 100% !important;
+                    object-fit: contain;
                     transition: opacity 0.1s ease-out;
                     will-change: opacity;
                 }

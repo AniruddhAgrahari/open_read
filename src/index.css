@@ -281,8 +281,9 @@ body {
 
 .page-container canvas {
   display: block;
-  max-width: 100%;
-  height: auto;
+  width: 100% !important;
+  height: auto !important;
+  object-fit: contain;
   filter: invert(1) hue-rotate(180deg);
   transition: filter 0.3s ease;
 }
@@ -632,6 +633,27 @@ body {
   gap: 10px;
 }
 
+.modal-helper-link {
+  display: block;
+  font-size: 11px;
+  color: var(--accent-color);
+  margin-top: 4px;
+  text-decoration: none;
+  opacity: 0.8;
+  transition: opacity 0.2s;
+}
+
+.modal-helper-link:hover {
+  opacity: 1;
+  text-decoration: underline;
+}
+
+.divider {
+  height: 1px;
+  background: var(--glass-border);
+  width: 100%;
+}
+
 /* Premium Floating Panel */
 .premium-panel {
   position: fixed;
@@ -909,7 +931,7 @@ body {
 .editor-toolbar {
   position: fixed;
   left: 20px;
-  top: 50%;
+  top: 30%;
   transform: translateY(-50%);
   width: 64px;
   background: rgba(15, 15, 15, 0.7);
@@ -1148,7 +1170,7 @@ body {
 /* Page Indicator Pill */
 .page-indicator-pill {
   position: fixed;
-  right: 24px;
+  left: 24px;
   bottom: 24px;
   width: 52px;
   background: rgba(15, 15, 15, 0.7);

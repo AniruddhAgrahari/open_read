@@ -7,9 +7,22 @@ interface ApiKeyModalProps {
     onClose: () => void;
     apiKey: string;
     onApiKeyChange: (key: string) => void;
+    searchApiKey: string;
+    onSearchApiKeyChange: (key: string) => void;
+    searchEngineId: string;
+    onSearchEngineIdChange: (id: string) => void;
 }
 
-export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({ isOpen, onClose, apiKey, onApiKeyChange }) => {
+export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({
+    isOpen,
+    onClose,
+    apiKey,
+    onApiKeyChange,
+    searchApiKey,
+    onSearchApiKeyChange,
+    searchEngineId,
+    onSearchEngineIdChange
+}) => {
     if (!isOpen) return null;
 
     const modalContent = (
@@ -28,6 +41,7 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({ isOpen, onClose, apiKe
                     transition={{ type: 'spring', damping: 25, stiffness: 300 }}
                     className="modal-content glass"
                     onClick={(e) => e.stopPropagation()}
+                    style={{ maxWidth: '500px' }}
                 >
                     <button className="modal-close" onClick={onClose}>
                         <X size={20} />
@@ -35,44 +49,66 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({ isOpen, onClose, apiKe
 
                     <div className="modal-header">
                         <Key size={24} color="var(--accent-color)" />
-                        <h2>Connect API Key for AI Features</h2>
+                        <h2>Settings & API Keys</h2>
                     </div>
 
                     <p className="modal-description">
-                        Enter your Groq API key to enable Deep Analysis and smart document insights.
-                        Your key is stored locally and never sent to external servers.
+                        Connect your API keys to enable AI Analysis and Live Web Search.
+                        Keys are stored locally only.
                     </p>
 
                     <div className="modal-input-group">
-                        <label htmlFor="api-key-input">Groq API Key</label>
+                        <label htmlFor="api-key-input">Groq API Key (AI Analysis)</label>
                         <input
                             id="api-key-input"
                             type="password"
-                            placeholder="Paste gsk_... key here"
+                            placeholder="gsk_..."
                             value={apiKey}
                             onChange={(e) => onApiKeyChange(e.target.value)}
                             autoFocus
                         />
+                        <a href="https://console.groq.com/keys" target="_blank" rel="noopener noreferrer" className="modal-helper-link">
+                            Get Groq Key
+                        </a>
                     </div>
 
-                    <div className="modal-actions">
+                    <div className="divider" style={{ margin: '15px 0' }} />
+
+                    <div className="modal-input-group">
+                        <label htmlFor="search-api-key">Google Search API Key (Live Search)</label>
+                        <input
+                            id="search-api-key"
+                            type="password"
+                            placeholder="AIza..."
+                            value={searchApiKey}
+                            onChange={(e) => onSearchApiKeyChange(e.target.value)}
+                        />
+                        <a href="https://developers.google.com/custom-search/v1/overview" target="_blank" rel="noopener noreferrer" className="modal-helper-link">
+                            Get Google API Key
+                        </a>
+                    </div>
+
+                    <div className="modal-input-group">
+                        <label htmlFor="search-cx">Google Search Engine ID (CX)</label>
+                        <input
+                            id="search-cx"
+                            type="text"
+                            placeholder="e.g. 0123456789:abcde"
+                            value={searchEngineId}
+                            onChange={(e) => onSearchEngineIdChange(e.target.value)}
+                        />
+                        <a href="https://programmablesearchengine.google.com/controlpanel/all" target="_blank" rel="noopener noreferrer" className="modal-helper-link">
+                            Create Search Engine
+                        </a>
+                    </div>
+
+                    <div className="modal-actions" style={{ marginTop: '20px' }}>
                         <button className="btn-secondary" onClick={onClose}>
                             Cancel
                         </button>
                         <button className="btn-primary" onClick={onClose}>
-                            Save Connection
+                            Save Settings
                         </button>
-                    </div>
-
-                    <div className="modal-footer">
-                        <a
-                            href="https://console.groq.com/keys"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="modal-link"
-                        >
-                            Get your API key from Groq Console →
-                        </a>
                     </div>
                 </motion.div>
             </motion.div>

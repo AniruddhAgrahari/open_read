@@ -26,10 +26,19 @@ import { open } from '@tauri-apps/plugin-dialog';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import ReactMarkdown from 'react-markdown';
+import { invoke } from '@tauri-apps/api/core';
+import { initHistoryDb, saveHistoryEntry, getHistoryForFile } from './services/historyService';
+import { AiHistoryFeed } from './components/AiHistoryFeed';
+import { AiChatSidebar } from './components/AiChatSidebar';
+import { useChatStore } from './store/useChatStore';
+import { History as HistoryIcon, MessageCircle } from 'lucide-react';
 
 function App() {
   const { tabs, activeTabId, isEditMode, viewMode, addTab, removeTab, setActiveTab, toggleEditMode, setViewMode, undo, redo } = useTabStore();
-  const { apiKey, analysis, isLoading, error, setApiKey, setAnalysis, setLoading, setError } = useAiStore();
+  const {
+    apiKey, searchApiKey, searchEngineId, analysis, isLoading, error, showHistory, history, activeFileId,
+    setApiKey, setSearchApiKey, setSearchEngineId, setAnalysis, setLoading, setError, setShowHistory, setHistory, setActiveFileId
+  } = useAiStore();
 
   const [activeDrawer, setActiveDrawer] = useState<string | null>(null);
   const [selection, setSelection] = useState<{ text: string, position: { x: number, y: number } } | null>(null);
@@ -43,6 +52,72 @@ function App() {
   const [jumpToPage, setJumpToPage] = useState<number | undefined>(undefined);
   const [collapseToolbarSubMenus, setCollapseToolbarSubMenus] = useState(false);
   const lastDismissTime = useRef<number>(0);
+  const [documentText, setDocumentText] = useState<string>('');
+
+  const { isChatOpen, openChat, closeChat } = useChatStore();
+
+  // When chat opens, collapse toolbar and close AI analysis pane
+  // When chat closes, restore toolbar
+  useEffect(() => {
+    if (isChatOpen) {
+      setActiveDrawer(null); // Close AI analysis pane
+      setIsToolbarCollapsed(true); // Collapse floating toolbar
+    } else {
+      // Restore toolbar when chat closes (but not on initial mount)
+      setIsToolbarCollapsed(false);
+    }
+  }, [isChatOpen]);
+
+  // Initialize DB on mount
+  useEffect(() => {
+    initHistoryDb().catch(console.error);
+  }, []);
+
+  // Update active file hash and fetch history when tab changes
+  useEffect(() => {
+    const updateHash = async () => {
+      const activeTab = tabs.find(t => t.id === activeTabId);
+      if (activeTab) {
+        let fileId: string | null = null;
+
+        // Try to get hash from Tauri
+        if (activeTab.realPath && (window as any).__TAURI__) {
+          try {
+            fileId = await invoke<string>('get_file_hash', { path: activeTab.realPath });
+            console.log('Active File Hash (Tauri):', fileId);
+          } catch (err) {
+            console.warn('Failed to get file hash from Tauri:', err);
+          }
+        }
+
+        // Fallback: use file name + path as identifier
+        if (!fileId) {
+          fileId = `file_${activeTab.name}_${activeTab.path}`.replace(/[^a-zA-Z0-9]/g, '_');
+          console.log('Active File ID (fallback):', fileId);
+        }
+
+        setActiveFileId(fileId);
+        fetchHistory(fileId);
+      } else {
+        setActiveFileId(null);
+        setHistory([]);
+      }
+    };
+
+    updateHash();
+  }, [activeTabId, tabs]);
+
+  const fetchHistory = async (fileId: string) => {
+    try {
+      console.log('Fetching history for:', fileId);
+      const entries = await getHistoryForFile(fileId);
+      console.log('Fetched entries:', entries.length);
+      setHistory(entries);
+    } catch (err) {
+      console.error('Failed to fetch history:', err);
+    }
+  };
+
 
   // Handle view mode changes
   useEffect(() => {
@@ -149,7 +224,12 @@ function App() {
         if (selected && typeof selected === 'string') {
           const name = selected.split(/[\\/]/).pop() || 'Document.pdf';
           const assetUrl = convertFileSrc(selected);
-          addTab(name, assetUrl);
+          addTab(name, assetUrl, selected);
+
+          // Calculate hash for the new file
+          const hash = await invoke<string>('get_file_hash', { path: selected });
+          setActiveFileId(hash);
+          fetchHistory(hash);
         }
       } else {
         // Browser environment fallback
@@ -185,6 +265,33 @@ function App() {
       const result = await analyzeTextWithGroq(text, text, apiKey);
       setAnalysis(result);
       setActiveDrawer('ai');
+
+      // Save to history
+      let currentFileId = activeFileId;
+      if (!currentFileId) {
+        const activeTab = tabs.find(t => t.id === activeTabId);
+        if (activeTab?.realPath && (window as any).__TAURI__) {
+          try {
+            currentFileId = await invoke<string>('get_file_hash', { path: activeTab.realPath });
+            setActiveFileId(currentFileId);
+          } catch (e) {
+            console.error('Failed to get hash in deep dive:', e);
+          }
+        }
+      }
+
+      if (currentFileId) {
+        console.log('Saving entry...');
+        await saveHistoryEntry({
+          file_id: currentFileId,
+          query_text: text,
+          ai_response_json: result,
+          timestamp: Date.now()
+        });
+        console.log('Entry saved.');
+        // Update local history state
+        fetchHistory(currentFileId);
+      }
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -314,7 +421,14 @@ function App() {
         </button>
       </div>
 
-      <div className="main-content" style={{ marginTop: isNavbarCollapsed ? 0 : 0 }}>
+      <div
+        className="main-content"
+        style={{
+          marginTop: isNavbarCollapsed ? 0 : 0,
+          marginRight: isChatOpen ? 380 : 0,
+          transition: 'margin-right 0.3s cubic-bezier(0.4, 0, 0.2, 1)'
+        }}
+      >
         {/* PDF Area */}
         <div style={{ flex: 1, position: 'relative', display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'hidden' }}>
           <AnimatePresence mode="wait">
@@ -342,6 +456,8 @@ function App() {
                   jumpToPage={jumpToPage}
                   activeTool={activeEditorTool}
                   onInteraction={() => setCollapseToolbarSubMenus(true)}
+                  onTextExtracted={setDocumentText}
+                  isSidebarOpen={isChatOpen}
                 />
 
                 {/* Undo/Redo Buttons - Inside PDF Viewing Area */}
@@ -492,9 +608,60 @@ function App() {
         >
           {activeDrawer === 'ai' && (
             <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
-                <Sparkles size={18} color="var(--accent-color)" />
-                <span style={{ fontWeight: 700, fontSize: 14 }}>Deep Analysis</span>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <Sparkles size={18} color="var(--accent-color)" />
+                  <span style={{ fontWeight: 700, fontSize: 14 }}>
+                    {showHistory ? 'Analysis History' : 'Deep Analysis'}
+                  </span>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <motion.button
+                    onClick={openChat}
+                    whileHover={{ scale: 1.1, boxShadow: '0 0 15px rgba(var(--accent-rgb), 0.4)' }}
+                    whileTap={{ scale: 0.95 }}
+                    style={{
+                      background: 'rgba(255,255,255,0.05)',
+                      border: '1px solid var(--glass-border)',
+                      borderRadius: '50%',
+                      width: 32,
+                      height: 32,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      color: 'var(--text-secondary)',
+                      cursor: 'pointer',
+                      transition: 'all 0.3s ease'
+                    }}
+                    title="Open AI Chat"
+                  >
+                    <MessageCircle size={16} />
+                  </motion.button>
+
+                  <motion.button
+                    onClick={() => setShowHistory(!showHistory)}
+                    className={`history-toggle-btn ${showHistory ? 'active' : ''}`}
+                    whileHover={{ scale: 1.1, boxShadow: '0 0 15px rgba(var(--accent-rgb), 0.4)' }}
+                    whileTap={{ scale: 0.95 }}
+                    style={{
+                      background: showHistory ? 'var(--accent-color)' : 'rgba(255,255,255,0.05)',
+                      border: '1px solid var(--glass-border)',
+                      borderRadius: '50%',
+                      width: 32,
+                      height: 32,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      color: showHistory ? 'white' : 'var(--text-secondary)',
+                      cursor: 'pointer',
+                      transition: 'all 0.3s ease'
+                    }}
+                    title={showHistory ? "Back to Analysis" : "View History"}
+                  >
+                    <HistoryIcon size={16} />
+                  </motion.button>
+                </div>
               </div>
 
               <div style={{
@@ -505,21 +672,33 @@ function App() {
                 border: '1px solid var(--glass-border)',
                 color: 'var(--text-primary)',
               }}>
-                {isLoading ? (
-                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, padding: '30px 0' }}>
-                    <Loader2 className="animate-spin" size={24} color="var(--accent-color)" />
-                    <span style={{ fontSize: 12, opacity: 0.6, fontWeight: 500 }}>Thinking...</span>
-                  </div>
-                ) : error ? (
-                  <div style={{ color: '#ef4444', fontSize: 12, lineHeight: 1.5 }}>{error}</div>
-                ) : analysis ? (
-                  <div className="analysis-text">
-                    <ReactMarkdown>{analysis}</ReactMarkdown>
-                  </div>
+                {showHistory ? (
+                  <AiHistoryFeed
+                    entries={history}
+                    onSelect={(entry) => {
+                      setAnalysis(entry.ai_response_json);
+                      setShowHistory(false);
+                    }}
+                  />
                 ) : (
-                  <p style={{ opacity: 0.5, fontSize: 12, textAlign: 'center', padding: '20px 0' }}>
-                    Select text and click "Deep Dive" to start AI analysis.
-                  </p>
+                  <>
+                    {isLoading ? (
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, padding: '30px 0' }}>
+                        <Loader2 className="animate-spin" size={24} color="var(--accent-color)" />
+                        <span style={{ fontSize: 12, opacity: 0.6, fontWeight: 500 }}>Thinking...</span>
+                      </div>
+                    ) : error ? (
+                      <div style={{ color: '#ef4444', fontSize: 12, lineHeight: 1.5 }}>{error}</div>
+                    ) : analysis ? (
+                      <div className="analysis-text">
+                        <ReactMarkdown>{analysis}</ReactMarkdown>
+                      </div>
+                    ) : (
+                      <p style={{ opacity: 0.5, fontSize: 12, textAlign: 'center', padding: '20px 0' }}>
+                        Select text and click "Deep Dive" to start AI analysis.
+                      </p>
+                    )}
+                  </>
                 )}
               </div>
             </div>
@@ -533,6 +712,18 @@ function App() {
           onClose={() => setIsSettingsOpen(false)}
           apiKey={apiKey}
           onApiKeyChange={setApiKey}
+          searchApiKey={searchApiKey}
+          onSearchApiKeyChange={setSearchApiKey}
+          searchEngineId={searchEngineId}
+          onSearchEngineIdChange={setSearchEngineId}
+        />
+
+        {/* AI Chat Sidebar */}
+        <AiChatSidebar
+          isOpen={isChatOpen}
+          onClose={closeChat}
+          fileId={activeFileId}
+          documentText={documentText}
         />
       </div>
     </div>
