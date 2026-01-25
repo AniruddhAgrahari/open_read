@@ -45,11 +45,10 @@ export const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
     ];
 
     const handleViewModeChange = (mode: string) => {
-        setViewMode(mode as any);
         if (mode === 'focus') {
             onFocusModeToggle(true);
         } else {
-            onFocusModeToggle(false);
+            setViewMode(mode as any);
         }
         setIsViewMenuOpen(false);
     };

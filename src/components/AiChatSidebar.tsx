@@ -139,7 +139,7 @@ export const AiChatSidebar: React.FC<AiChatSidebarProps> = ({
     };
 
     const handleKeyDown = (e: React.KeyboardEvent) => {
-        if (e.key === 'Enter' && !e.shiftKey) {
+        if ((e.key === 'Enter' && !e.shiftKey) || (e.key === 'Enter' && e.ctrlKey)) {
             e.preventDefault();
             handleSend();
         }

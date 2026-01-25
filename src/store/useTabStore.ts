@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
-type ViewMode = 'normal' | 'dark' | 'eye-comfort' | 'focus';
+type ViewMode = 'normal' | 'dark' | 'eye-comfort';
 
 interface TextBox {
   id: string;
@@ -38,6 +38,7 @@ interface TabState {
   activeTabId: string | null;
   isEditMode: boolean;
   viewMode: ViewMode;
+  isFocusMode: boolean;
   maxActiveTabs: number;
   shapeColor: string;
   addTab: (name: string, path: string, realPath?: string) => void;
@@ -47,6 +48,7 @@ interface TabState {
   saveEdit: (tabId: string, spanId: string, content: string) => void;
   suspendTab: (id: string) => void;
   toggleEditMode: () => void;
+  toggleFocusMode: () => void;
   setViewMode: (mode: ViewMode) => void;
   setMaxActiveTabs: (count: number) => void;
   addTextBox: (tabId: string, box: Omit<TextBox, 'id'>) => void;
@@ -64,6 +66,7 @@ export const useTabStore = create<TabState>()(
       tabs: [],
       activeTabId: null,
       isEditMode: false,
+      isFocusMode: false,
       viewMode: 'dark',
       maxActiveTabs: 3,
       shapeColor: '#ef4444', // Default red
@@ -144,6 +147,7 @@ export const useTabStore = create<TabState>()(
         tabs: state.tabs.map((t) => (t.id === id ? { ...t, isSuspended: true } : t)),
       })),
       toggleEditMode: () => set((state) => ({ isEditMode: !state.isEditMode })),
+      toggleFocusMode: () => set((state) => ({ isFocusMode: !state.isFocusMode })),
       setViewMode: (viewMode) => set({ viewMode }),
       setMaxActiveTabs: (maxActiveTabs) => set({ maxActiveTabs }),
       setShapeColor: (shapeColor) => set({ shapeColor }),

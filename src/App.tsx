@@ -31,10 +31,12 @@ import { initHistoryDb, saveHistoryEntry, getHistoryForFile } from './services/h
 import { AiHistoryFeed } from './components/AiHistoryFeed';
 import { AiChatSidebar } from './components/AiChatSidebar';
 import { useChatStore } from './store/useChatStore';
-import { History as HistoryIcon, MessageCircle } from 'lucide-react';
+import { History as HistoryIcon, MessageCircle, Keyboard } from 'lucide-react';
+import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
+import { ShortcutsModal } from './components/ShortcutsModal';
 
 function App() {
-  const { tabs, activeTabId, isEditMode, viewMode, addTab, removeTab, setActiveTab, toggleEditMode, setViewMode, undo, redo } = useTabStore();
+  const { tabs, activeTabId, isEditMode, isFocusMode, viewMode, addTab, removeTab, setActiveTab, toggleEditMode, toggleFocusMode, undo, redo } = useTabStore();
   const {
     apiKey, searchApiKey, searchEngineId, analysis, isLoading, error, showHistory, history, activeFileId,
     setApiKey, setSearchApiKey, setSearchEngineId, setAnalysis, setLoading, setError, setShowHistory, setHistory, setActiveFileId
@@ -45,7 +47,6 @@ function App() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isNavbarCollapsed, setIsNavbarCollapsed] = useState(false);
   const [isToolbarCollapsed, setIsToolbarCollapsed] = useState(false);
-  const [isFocusMode, setIsFocusMode] = useState(false);
   const [activeEditorTool, setActiveEditorTool] = useState<string | null>(null);
   const [currentPdfPage, setCurrentPdfPage] = useState(1);
   const [totalPdfPages, setTotalPdfPages] = useState(0);
@@ -55,6 +56,33 @@ function App() {
   const [documentText, setDocumentText] = useState<string>('');
 
   const { isChatOpen, openChat, closeChat } = useChatStore();
+  const [isShortcutsOpen, setIsShortcutsOpen] = useState(false);
+
+
+  const handleFocusModeToggle = useCallback(() => {
+    if (isFocusMode) {
+      setIsNavbarCollapsed(false);
+      setIsToolbarCollapsed(false);
+    }
+    toggleFocusMode();
+  }, [isFocusMode, toggleFocusMode]);
+
+  useKeyboardShortcuts(
+    () => setIsShortcutsOpen(true),
+    () => {
+      if (currentPdfPage < totalPdfPages) {
+        setJumpToPage(currentPdfPage + 1);
+        setTimeout(() => setJumpToPage(undefined), 500);
+      }
+    },
+    () => {
+      if (currentPdfPage > 1) {
+        setJumpToPage(currentPdfPage - 1);
+        setTimeout(() => setJumpToPage(undefined), 500);
+      }
+    },
+    handleFocusModeToggle
+  );
 
   // When chat opens, collapse toolbar and close AI analysis pane
   // When chat closes, restore toolbar
@@ -124,51 +152,58 @@ function App() {
     const root = document.documentElement;
     root.classList.remove('light-mode', 'eye-comfort-mode', 'focus-mode');
 
-    // Tauri window handle
-    const tauriWindow = (window as any).__TAURI__ ? getCurrentWindow() : null;
+    // Set data-theme for futureproofing
+    root.setAttribute('data-theme', viewMode === 'normal' ? 'light' : 'dark');
 
     if (viewMode === 'normal') {
       root.classList.add('light-mode');
     } else if (viewMode === 'eye-comfort') {
       root.classList.add('eye-comfort-mode');
-    } else if (viewMode === 'focus') {
-      setIsFocusMode(true);
+    }
+  }, [viewMode]);
+
+  // Handle Focus Mode
+  useEffect(() => {
+    const root = document.documentElement;
+    const tauriWindow = (window as any).__TAURI__ ? getCurrentWindow() : null;
+
+    if (isFocusMode) {
+      root.classList.add('focus-mode');
       setIsNavbarCollapsed(true);
       setIsToolbarCollapsed(true);
-
-      // Fullscreen logic
       if (tauriWindow) {
         tauriWindow.setFullscreen(true).catch(console.error);
       } else if (root.requestFullscreen) {
         root.requestFullscreen().catch(console.error);
       }
-    }
-
-    if (viewMode !== 'focus') {
-      setIsFocusMode(false);
-      // Exit fullscreen logic
+    } else {
+      root.classList.remove('focus-mode');
+      setIsNavbarCollapsed(false);
+      setIsToolbarCollapsed(false);
       if (tauriWindow) {
         tauriWindow.setFullscreen(false).catch(console.error);
       } else if (document.fullscreenElement && document.exitFullscreen) {
         document.exitFullscreen().catch(console.error);
       }
     }
-  }, [viewMode]);
+  }, [isFocusMode]);
 
-  // Escape key listener to exit focus mode
+  // Sync state if user exits fullscreen via browser controls (like Esc)
   useEffect(() => {
-    const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && viewMode === 'focus') {
-        setViewMode('dark'); // Return to dark mode
-        setIsFocusMode(false);
-        setIsNavbarCollapsed(false);
-        setIsToolbarCollapsed(false);
+    const handleFullscreenChange = () => {
+      const isCurrentlyFullscreen = !!document.fullscreenElement;
+      if (!isCurrentlyFullscreen && isFocusMode) {
+        handleFocusModeToggle();
       }
     };
 
-    window.addEventListener('keydown', handleEscape);
-    return () => window.removeEventListener('keydown', handleEscape);
-  }, [viewMode, setViewMode]);
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+      document.removeEventListener('webkitfullscreenchange', handleFullscreenChange);
+    };
+  }, [isFocusMode, handleFocusModeToggle]);
 
   // Global click listener to dismiss bubble
   useEffect(() => {
@@ -329,6 +364,27 @@ function App() {
 
 
             <button
+              onClick={() => setIsShortcutsOpen(true)}
+              className="icon-btn"
+              title="Keyboard Shortcuts (?)"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                fontSize: 11,
+                fontWeight: 500,
+                background: 'var(--glass-bg)',
+                padding: '4px 10px',
+                borderRadius: '12px',
+                border: '1px solid var(--glass-border)',
+                color: 'var(--text-secondary)'
+              }}
+            >
+              <Keyboard size={12} />
+              <span>Shortcuts</span>
+            </button>
+
+            <button
               onClick={() => setIsSettingsOpen(!isSettingsOpen)}
               className="icon-btn"
               style={{
@@ -406,11 +462,7 @@ function App() {
           className={`navbar-toggle ${isNavbarCollapsed || isFocusMode ? '' : 'expanded'}`}
           onClick={() => {
             if (isFocusMode) {
-              // Exit focus mode when user tries to expand navbar
-              setViewMode('dark'); // Update view mode state
-              setIsFocusMode(false);
-              setIsNavbarCollapsed(false);
-              setIsToolbarCollapsed(false);
+              handleFocusModeToggle();
             } else {
               setIsNavbarCollapsed(!isNavbarCollapsed);
             }
@@ -546,25 +598,12 @@ function App() {
             isCollapsed={isToolbarCollapsed || isFocusMode}
             onCollapseToggle={() => {
               if (isFocusMode) {
-                // Exit focus mode when user tries to expand
-                setViewMode('dark'); // Update view mode state
-                setIsFocusMode(false);
-                setIsToolbarCollapsed(false);
-                setIsNavbarCollapsed(false);
+                handleFocusModeToggle();
               } else {
                 setIsToolbarCollapsed(!isToolbarCollapsed);
               }
             }}
-            onFocusModeToggle={(enabled) => {
-              setIsFocusMode(enabled);
-              if (enabled) {
-                setIsNavbarCollapsed(true);
-                setIsToolbarCollapsed(true);
-              } else {
-                setIsNavbarCollapsed(false);
-                setIsToolbarCollapsed(false);
-              }
-            }}
+            onFocusModeToggle={handleFocusModeToggle}
             isEditMode={isEditMode}
             onEditToggle={() => {
               if (isEditMode) setActiveEditorTool(null);
@@ -724,6 +763,11 @@ function App() {
           onClose={closeChat}
           fileId={activeFileId}
           documentText={documentText}
+        />
+        {/* Keyboard Shortcuts Modal */}
+        <ShortcutsModal
+          isOpen={isShortcutsOpen}
+          onClose={() => setIsShortcutsOpen(false)}
         />
       </div>
     </div>
