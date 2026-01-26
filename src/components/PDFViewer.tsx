@@ -174,7 +174,19 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
         }
     }, [jumpToPage, numPages]);
 
-    // Trackpad Pinch-to-Zoom
+    // Trackpad Pinch-to-Zoom Logic with Hybrid CSS Scaling
+    // 1. visualZoom: Immediate, smooth CSS scaling (no flickering)
+    // 2. zoom (from store): Committed resolution (high quality, causes re-render)
+    const [visualZoom, setVisualZoom] = useState(zoom);
+    const zoomTimeoutRef = useRef<number | null>(null);
+
+    // Sync visual zoom if external change happens (e.g. button click)
+    useEffect(() => {
+        if (Math.abs(visualZoom - zoom) > 0.01) {
+            setVisualZoom(zoom);
+        }
+    }, [zoom]);
+
     useEffect(() => {
         const container = containerRef.current;
         if (!container) return;
@@ -182,20 +194,32 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
         const handleWheel = (e: WheelEvent) => {
             if (e.ctrlKey) {
                 e.preventDefault();
+                e.stopPropagation();
 
                 const delta = -e.deltaY;
-                const factor = 0.01;
-                const newZoom = Math.min(Math.max(zoom + delta * factor, 0.5), 3.0);
+                // Smaller factor for smoother control
+                const factor = 0.005;
 
-                if (newZoom !== zoom) {
-                    updateTab(tabId, { zoom: parseFloat(newZoom.toFixed(2)) });
-                }
+                setVisualZoom(prev => {
+                    const next = Math.min(Math.max(prev + delta * factor, 0.5), 3.0);
+                    return parseFloat(next.toFixed(3));
+                });
+
+                // Debounce the heavy React-PDF re-render
+                if (zoomTimeoutRef.current) clearTimeout(zoomTimeoutRef.current);
+
+                zoomTimeoutRef.current = setTimeout(() => {
+                    setVisualZoom(currentVisual => {
+                        updateTab(tabId, { zoom: parseFloat(currentVisual.toFixed(2)) });
+                        return currentVisual;
+                    });
+                }, 300) as unknown as number; // Wait 300ms after last gesture
             }
         };
 
         container.addEventListener('wheel', handleWheel, { passive: false });
         return () => container.removeEventListener('wheel', handleWheel);
-    }, [zoom, updateTab, tabId]);
+    }, [tabId, updateTab]); // Remove 'zoom' dependency to prevent listener recreation loop
 
     const onDocumentLoadSuccess = async ({ numPages }: { numPages: number }) => {
         setNumPages(numPages);
@@ -532,14 +556,17 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
                             marginBottom: '24px',
                             background: isDarkMode ? '#1a1a1a' : 'white',
                             lineHeight: 0,
-                            width: (renderedWidth || 800) * zoom, // Match PDF width exactly
+                            // Use visualZoom for fluid container sizing (prevents flickering by avoiding canvas re-renders)
+                            width: (renderedWidth || 800) * visualZoom,
                             position: 'relative',
                             boxShadow: isDarkMode
                                 ? '0 10px 30px rgba(0,0,0,0.5)'
                                 : '0 4px 20px rgba(0,0,0,0.08)',
                             cursor: ['rect', 'circle', 'oval', 'arrow'].includes(activeTool || '') ? 'crosshair' : (activeTool === 'highlighter' ? 'text' : (activeTool && activeTool !== 'pointer' ? 'text' : 'default')),
                             userSelect: drawingState.isDrawing ? 'none' : 'auto',
-                            transition: isTransitioningRef.current ? 'width 0.3s ease-out' : 'none'
+                            transition: isTransitioningRef.current ? 'width 0.3s ease-out' : 'none',
+                            // Ensure content stretches to fill the fluid container
+                            transformOrigin: 'top left'
                         }}
                     >
                         {/* Ghost Shape Layer */}
@@ -684,6 +711,8 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
                     will-change: width, transform;
                     background-color: ${isDarkMode ? '#1a1a1a' : 'white'} !important;
                     min-height: 400px;
+                    width: 100% !important; /* Force stretch to container */
+                    height: 100% !important;
                 }
                 /* Dark Mode: Invert page for text readability */
                 .react-pdf__Page__canvas,

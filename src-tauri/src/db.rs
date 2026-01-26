@@ -51,8 +51,13 @@ pub fn init_db(app_handle: Option<&tauri::AppHandle>) -> Result<Connection> {
     // Check if dictionary is already populated
     let count: i64 = conn.query_row("SELECT COUNT(*) FROM dictionary", [], |row| row.get(0))?;
 
-    if count == 0 {
-        // Load dictionary from bundled resource or embedded data
+    // If the dictionary has fewer than 2000 entries, assume it's the old/fallback one and reload
+    if count < 2000 {
+        println!(
+            "Dictionary count is {}, reloading full dictionary...",
+            count
+        );
+        conn.execute("DELETE FROM dictionary", [])?;
         load_dictionary_data(&conn, app_handle)?;
     }
 

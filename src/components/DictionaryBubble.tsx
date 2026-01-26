@@ -12,13 +12,27 @@ interface DictionaryBubbleProps {
 // Check if we're running in Tauri desktop environment
 const isTauri = () => !!(window as any).__TAURI__;
 
+// Global cache for web-based offline dictionary
+declare global {
+    interface Window {
+        offlineDictionaryCache?: { words: Array<{ word: string; definition: string }> };
+    }
+}
+
 // Online dictionary API fallback (Free Dictionary API)
 async function fetchOnlineDefinition(term: string): Promise<string[]> {
     try {
         const cleanTerm = term.trim().replace(/[.,!?;:()"]/g, '').toLowerCase();
         if (cleanTerm.length < 2 || cleanTerm.split(/\s+/).length > 3) return [];
 
-        const response = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(cleanTerm)}`);
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 3000); // 3s timeout
+
+        const response = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(cleanTerm)}`, {
+            signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+
         if (!response.ok) return [];
 
         const data = await response.json();
@@ -41,61 +55,116 @@ async function fetchOnlineDefinition(term: string): Promise<string[]> {
     }
 }
 
+// Web/Fallback Offline Search
+async function searchWebOfflineDictionary(term: string): Promise<string[]> {
+    try {
+        // Lazy load the dictionary if not in memory
+        if (!window.offlineDictionaryCache) {
+            console.log('Loading offline dictionary from /dictionary.json...');
+            const response = await fetch('/dictionary.json');
+            if (response.ok) {
+                window.offlineDictionaryCache = await response.json();
+            } else {
+                console.warn('Failed to load /dictionary.json');
+                return [];
+            }
+        }
+
+        const dict = window.offlineDictionaryCache;
+        if (!dict || !dict.words) return [];
+
+        const lowerTerm = term.toLowerCase();
+
+        // Exact match first
+        const exact = dict.words.find(w => w.word.toLowerCase() === lowerTerm);
+        if (exact) return [exact.definition];
+
+        // Prefix match
+        const results = dict.words
+            .filter(w => w.word.toLowerCase().startsWith(lowerTerm))
+            .slice(0, 3)
+            .map(w => w.definition);
+
+        return results;
+
+    } catch (e) {
+        console.error('Web offline dict error:', e);
+        return [];
+    }
+}
+
 export const DictionaryBubble: React.FC<DictionaryBubbleProps> = ({ word, position, onClose, onDeepDive }) => {
     const [definitions, setDefinitions] = useState<string[]>([]);
     const [loading, setLoading] = useState(true);
     const [source, setSource] = useState<'local' | 'online' | null>(null);
 
     useEffect(() => {
+        let isMounted = true;
+
         const fetchDefinition = async () => {
             setLoading(true);
             setDefinitions([]);
             setSource(null);
 
-            let foundLocal = false;
-
-            // Additional cleaning for dictionary lookup
+            // Clean word
             const cleanWord = word
                 .trim()
-                .replace(/^[^a-zA-Z]+/, '')  // Remove non-letter chars from start
-                .replace(/[^a-zA-Z\s]+$/, '')  // Remove non-letter chars from end (except spaces)
-                .replace(/-\s+/g, '')  // Handle hyphenated words split across lines
+                .replace(/^[^a-zA-Z]+/, '')
+                .replace(/[^a-zA-Z\s]+$/, '')
+                .replace(/-\s+/g, '')
                 .trim();
 
-            // Try Tauri offline dictionary first (only in desktop app)
-            if (isTauri() && cleanWord.length > 0) {
+            if (cleanWord.length === 0) {
+                if (isMounted) setLoading(false);
+                return;
+            }
+
+            let foundResults: string[] = [];
+            let foundSource: 'local' | 'online' | null = null;
+
+            // 1. Try Tauri Rust DB (Fastest, Offline)
+            if (isTauri()) {
                 try {
                     const { invoke } = await import('@tauri-apps/api/core');
-                    if (typeof invoke === 'function') {
-                        const results: string[] = await invoke('search_dictionary', { word: cleanWord });
-                        if (results && results.length > 0) {
-                            setDefinitions(results);
-                            setSource('local');
-                            foundLocal = true;
-                        }
+                    const results: string[] = await invoke('search_dictionary', { word: cleanWord });
+                    if (results && results.length > 0) {
+                        foundResults = results;
+                        foundSource = 'local';
                     }
                 } catch (err) {
-                    console.warn('Tauri dictionary lookup failed, falling back to online:', err);
+                    console.warn('Tauri lookup failed:', err);
                 }
             }
 
-            // Fallback to online dictionary API if no local result
-            if (!foundLocal && cleanWord.length > 0) {
-                try {
-                    const onlineResults = await fetchOnlineDefinition(cleanWord);
-                    if (onlineResults.length > 0) {
-                        setDefinitions(onlineResults);
-                        setSource('online');
-                    }
-                } catch (err) {
-                    console.warn('Online dictionary lookup failed:', err);
+            // 2. Try Web Offline JSON (Fallback for Web or if Tauri DB empty)
+            if (foundResults.length === 0) {
+                const webResults = await searchWebOfflineDictionary(cleanWord);
+                if (webResults.length > 0) {
+                    foundResults = webResults;
+                    foundSource = 'local';
                 }
             }
 
-            setLoading(false);
+            // 3. Try Online API (Last Resort)
+            if (foundResults.length === 0 && navigator.onLine) {
+                const onlineResults = await fetchOnlineDefinition(cleanWord);
+                if (onlineResults.length > 0) {
+                    foundResults = onlineResults;
+                    foundSource = 'online';
+                }
+            }
+
+            if (isMounted) {
+                setDefinitions(foundResults);
+                setSource(foundSource);
+                setLoading(false);
+            }
         };
 
-        if (word) fetchDefinition();
+        if (word) {
+            const timer = setTimeout(fetchDefinition, 100); // 100ms debounce for selection settling
+            return () => { isMounted = false; clearTimeout(timer); };
+        }
     }, [word]);
 
     // Close on Escape key
@@ -173,15 +242,32 @@ export const DictionaryBubble: React.FC<DictionaryBubbleProps> = ({ word, positi
                 </div>
             </div>
 
-            <div style={{ maxHeight: 100, overflowY: 'auto', marginBottom: 0 }}>
+            <div style={{ maxHeight: 200, overflowY: 'auto', marginBottom: 0, paddingRight: 4 }} className="custom-scrollbar">
                 {loading ? (
                     <div style={{ fontSize: 11, opacity: 0.5, padding: '4px 0' }}>Searching...</div>
                 ) : definitions.length > 0 ? (
-                    definitions.map((def, i) => (
-                        <div key={i} style={{ fontSize: 12, lineHeight: 1.4, marginBottom: 6, paddingLeft: 8, borderLeft: '2px solid var(--accent-color)', opacity: 0.9 }}>
-                            {def}
-                        </div>
-                    ))
+                    definitions.map((def, i) => {
+                        // Parse "1. ... 2. ..." format if present in a single string
+                        const parts = /^\d+\./.test(def)
+                            ? def.split(/(?=\s\d+\.)/g).map(s => s.trim())
+                            : [def];
+
+                        return parts.map((part, j) => (
+                            <div key={`${i}-${j}`} style={{
+                                fontSize: 12,
+                                lineHeight: 1.5,
+                                marginBottom: 8,
+                                paddingLeft: 8,
+                                borderLeft: '2px solid var(--accent-color)',
+                                opacity: 0.9,
+                                background: 'var(--bg-secondary)',
+                                padding: '6px 8px 6px 10px',
+                                borderRadius: '0 4px 4px 0'
+                            }}>
+                                {part}
+                            </div>
+                        ));
+                    })
                 ) : (
                     <div style={{ fontSize: 11, opacity: 0.5, padding: '4px 0' }}>No definition. Try Deep Dive.</div>
                 )}
