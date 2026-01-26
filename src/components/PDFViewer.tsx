@@ -60,6 +60,7 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
         updateTextBox,
         updateBox,
         deleteTextBox,
+        updateTab,
         shapeColor
     } = useTabStore();
 
@@ -67,7 +68,7 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
     const textBoxes = currentTab?.textBoxes || [];
     const zoom = currentTab?.zoom || 1.0;
 
-    const isDarkMode = viewMode === 'dark' || viewMode === 'eye-comfort' || viewMode === 'focus';
+    const isDarkMode = viewMode === 'dark' || viewMode === 'eye-comfort';
 
     // Unified resize and transition logic
     useEffect(() => {
@@ -172,6 +173,29 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
             }
         }
     }, [jumpToPage, numPages]);
+
+    // Trackpad Pinch-to-Zoom
+    useEffect(() => {
+        const container = containerRef.current;
+        if (!container) return;
+
+        const handleWheel = (e: WheelEvent) => {
+            if (e.ctrlKey) {
+                e.preventDefault();
+
+                const delta = -e.deltaY;
+                const factor = 0.01;
+                const newZoom = Math.min(Math.max(zoom + delta * factor, 0.5), 3.0);
+
+                if (newZoom !== zoom) {
+                    updateTab(tabId, { zoom: parseFloat(newZoom.toFixed(2)) });
+                }
+            }
+        };
+
+        container.addEventListener('wheel', handleWheel, { passive: false });
+        return () => container.removeEventListener('wheel', handleWheel);
+    }, [zoom, updateTab, tabId]);
 
     const onDocumentLoadSuccess = async ({ numPages }: { numPages: number }) => {
         setNumPages(numPages);

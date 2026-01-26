@@ -16,6 +16,7 @@
     "@tauri-apps/plugin-sql": "^2.3.1",
     "framer-motion": "^12.27.1",
     "lucide-react": "^0.562.0",
+    "pdf-lib": "^1.17.1",
     "pdfjs-dist": "^5.4.530",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
